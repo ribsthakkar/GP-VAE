@@ -227,7 +227,7 @@ def main(argv):
                        beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type)
     elif FLAGS.model_type == "cgp-vae":
         encoder = BandedJointEncoder if FLAGS.banded_covar else JointEncoder
-        model = CGP_VAE(latent_dim=FLAGS.latent_dim, data_dim=data_dim, time_length=time_length,
+        model = CGP_VAE(latent_dim= int(data_dim*FLAGS.corruption_rate*2), data_dim=data_dim, time_length=time_length,
                            encoder_sizes=FLAGS.encoder_sizes, encoder=encoder,
                            decoder_sizes=FLAGS.decoder_sizes, decoder=decoder,
                            kernel=FLAGS.kernel, sigma=FLAGS.sigma,

@@ -219,7 +219,7 @@ class VAE(tf.keras.Model):
             x = tf.reshape(x_preprocessed, x_shape)
         return self.encoder(x)
 
-    def decode(self, z):
+    def decode(self, z, c_i=None):
         z = tf.identity(z)  # in case z is not a Tensor already...
         return self.decoder(z)
 
@@ -266,7 +266,7 @@ class VAE(tf.keras.Model):
             mse = tf.where(m_mask, mse, tf.zeros_like(mse))  # !!! inverse mask, set zeros for observed
         return tf.reduce_sum(mse)
 
-    def _compute_loss(self, x, m_mask=None, return_parts=False, corruption_locations=None):
+    def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
         x = tf.identity(x)  # in case x is not a Tensor already...
         x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
@@ -313,23 +313,24 @@ class VAE(tf.keras.Model):
         else:
             return -elbo
 
-    def compute_loss(self, x, m_mask=None, return_parts=False):
+    def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         del m_mask
-        return self._compute_loss(x, return_parts=return_parts)
+        return self._compute_loss(x, return_parts=return_parts, clean_input=clean_input)
 
     def kl_divergence(self, a, b):
         return tfd.kl_divergence(a, b)
 
     def get_trainable_vars(self):
         self.compute_loss(tf.random.normal(shape=(1, self.time_length, self.data_dim), dtype=tf.float32),
-                          tf.zeros(shape=(1, self.time_length, self.data_dim), dtype=tf.float32))
+                          tf.zeros(shape=(1, self.time_length, self.data_dim), dtype=tf.float32),
+                          clean_input=tf.zeros(shape=(1, self.time_length, self.data_dim), dtype=tf.float32))
         return self.trainable_variables
 
 
 class HI_VAE(VAE):
     """ HI-VAE model, where the reconstruction term in ELBO is summed only over observed components """
-    def compute_loss(self, x, m_mask=None, return_parts=False, corruption_locations=None):
-        return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts, corruption_locations=None)
+    def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
+        return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts, clean_input=clean_input)
 
 
 class GP_VAE(HI_VAE):
@@ -354,7 +355,7 @@ class GP_VAE(HI_VAE):
         self.pz_scale_log_abs_determinant = None
         self.prior = None
 
-    def decode(self, z):
+    def decode(self, z, c_i=None):
         num_dim = len(z.shape)
         assert num_dim > 2
         perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
@@ -444,7 +445,7 @@ class CGP_VAE(GP_VAE):
         """
         super(CGP_VAE, self).__init__(*args, **kwargs)
         self.corruption = corruption_factor
-        assert self.latent_dim == self.corruption * self.data_dim * 2
+        assert self.latent_dim == int(self.corruption * self.data_dim * 2)
 
     def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
@@ -466,7 +467,7 @@ class CGP_VAE(GP_VAE):
         if m_mask is not None:
             nll = tf.where(m_mask, tf.zeros_like(nll), nll)  # if not HI-VAE, m_mask is always zeros
         nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
-        rl = tf.norm(px_z.mean() - clean_input, ord='fro')
+        rl = tf.norm(px_z.mean() - clean_input)
         if self.K > 1:
             kl = qz_x.log_prob(z) - pz.log_prob(z)  # shape=(M*K*BS, TL or d)
             kl = tf.where(tf.is_finite(kl), kl, tf.zeros_like(kl))
@@ -494,11 +495,10 @@ class CGP_VAE(GP_VAE):
             return elbo
 
     def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
-        return self._compute_loss(x, return_parts=return_parts)
+        return self._compute_loss(x, return_parts=return_parts, clean_input=clean_input)
 
     def decode(self, z, c_i=None):
-        z = tf.concat([z, tf.reshape(c_i, z.shape)])
         num_dim = len(z.shape)
         assert num_dim > 2
         perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
-        return self.decoder(tf.transpose(z, perm=perm))
+        return self.decoder(tf.concat((tf.transpose(z, perm=perm), c_i),  axis=2))
