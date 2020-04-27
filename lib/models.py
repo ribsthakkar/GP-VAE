@@ -321,8 +321,8 @@ class VAE(tf.keras.Model):
         return tfd.kl_divergence(a, b)
 
     def get_trainable_vars(self):
-        self.compute_loss(tf.random.normal(shape=(1, self.time_length, self.data_dim), dtype=tf.float32),
-                          tf.zeros(shape=(1, self.time_length, self.data_dim), dtype=tf.float32),
+        self.compute_loss(x=tf.random.normal(shape=(1, self.time_length, self.data_dim), dtype=tf.float32),
+                          m_mask=tf.ones(shape=(1, self.time_length, self.data_dim), dtype=tf.float32),
                           clean_input=tf.zeros(shape=(1, self.time_length, self.data_dim), dtype=tf.float32))
         return self.trainable_variables
 
@@ -389,7 +389,7 @@ class GP_VAE(HI_VAE):
             assert len(kernel_matrix_tiled) == self.latent_dim
 
             self.prior = tfd.MultivariateNormalFullCovariance(
-                loc=corruption,
+                loc=tf.zeros([self.latent_dim, self.time_length], dtype=tf.float32),
                 covariance_matrix=kernel_matrix_tiled)
         return self.prior
 
@@ -451,11 +451,11 @@ class CGP_VAE(GP_VAE):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
         x = tf.identity(x)  # in case x is not a Tensor already...
         x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
-        corruption = tf.tile(tf.identity(m_mask), [self.M * self.K, 1, 1])
-        if m_mask is not None:
-            m_mask = tf.identity(m_mask)  # in case m_mask is not a Tensor already...
-            m_mask = tf.tile(m_mask, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
-            m_mask = tf.cast(m_mask, tf.bool)
+        m_mask = tf.identity(m_mask)  # in case m_mask is not a Tensor already...
+        m_mask = tf.tile(m_mask, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
+        _, corruption = tf.math.top_k(m_mask, k=self.latent_dim)
+        corruption = tf.cast(tf.identity(corruption), dtype=tf.float32)
+        m_mask = tf.cast(m_mask, tf.bool)
 
         pz = self._get_prior(corruption=corruption)
         qz_x = self.encode(x)
@@ -494,8 +494,38 @@ class CGP_VAE(GP_VAE):
         else:
             return elbo
 
+    def _get_prior(self, corruption=None):
+        # Compute kernel matrices for each latent dimension
+        kernel_matrices = []
+        for i in range(self.kernel_scales):
+            if self.kernel == "rbf":
+                kernel_matrices.append(rbf_kernel(self.time_length, self.length_scale / 2**i))
+            elif self.kernel == "diffusion":
+                kernel_matrices.append(diffusion_kernel(self.time_length, self.length_scale / 2**i))
+            elif self.kernel == "matern":
+                kernel_matrices.append(matern_kernel(self.time_length, self.length_scale / 2**i))
+            elif self.kernel == "cauchy":
+                kernel_matrices.append(cauchy_kernel(self.time_length, self.sigma, self.length_scale / 2**i))
+
+        # Combine kernel matrices for each latent dimension
+        tiled_matrices = []
+        total = 0
+        for i in range(self.kernel_scales):
+            if i == self.kernel_scales-1:
+                multiplier = self.latent_dim - total
+            else:
+                multiplier = int(np.ceil(self.latent_dim / self.kernel_scales))
+                total += multiplier
+            tiled_matrices.append(tf.tile(tf.expand_dims(kernel_matrices[i], 0), [multiplier, 1, 1]))
+        kernel_matrix_tiled = np.concatenate(tiled_matrices)
+        assert len(kernel_matrix_tiled) == self.latent_dim
+        corruption = tf.transpose(tf.reduce_mean(corruption, 0), [1, 0]) # hotfix may not work with more than 3 dimensions
+        return tfd.MultivariateNormalFullCovariance(
+            loc=corruption,
+            covariance_matrix=kernel_matrix_tiled)
+
     def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
-        return self._compute_loss(x, return_parts=return_parts, clean_input=clean_input)
+        return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts, clean_input=clean_input)
 
     def decode(self, z, c_i=None):
         num_dim = len(z.shape)
