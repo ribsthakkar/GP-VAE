@@ -266,7 +266,7 @@ class VAE(tf.keras.Model):
             mse = tf.where(m_mask, mse, tf.zeros_like(mse))  # !!! inverse mask, set zeros for observed
         return tf.reduce_sum(mse)
 
-    def _compute_loss(self, x, m_mask=None, return_parts=False):
+    def _compute_loss(self, x, m_mask=None, return_parts=False, corruption_locations=None):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
         x = tf.identity(x)  # in case x is not a Tensor already...
         x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
@@ -328,8 +328,8 @@ class VAE(tf.keras.Model):
 
 class HI_VAE(VAE):
     """ HI-VAE model, where the reconstruction term in ELBO is summed only over observed components """
-    def compute_loss(self, x, m_mask=None, return_parts=False):
-        return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts)
+    def compute_loss(self, x, m_mask=None, return_parts=False, corruption_locations=None):
+        return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts, corruption_locations=None)
 
 
 class GP_VAE(HI_VAE):
@@ -360,7 +360,7 @@ class GP_VAE(HI_VAE):
         perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
         return self.decoder(tf.transpose(z, perm=perm))
 
-    def _get_prior(self):
+    def _get_prior(self, corruption=None):
         if self.prior is None:
             # Compute kernel matrices for each latent dimension
             kernel_matrices = []
@@ -388,7 +388,7 @@ class GP_VAE(HI_VAE):
             assert len(kernel_matrix_tiled) == self.latent_dim
 
             self.prior = tfd.MultivariateNormalFullCovariance(
-                loc=tf.zeros([self.latent_dim, self.time_length], dtype=tf.float32),
+                loc=corruption,
                 covariance_matrix=kernel_matrix_tiled)
         return self.prior
 
@@ -436,3 +436,69 @@ class GP_VAE(HI_VAE):
                       squared_frobenius_norm(b_inv_a) + squared_frobenius_norm(
                       b.scale.solve((b.mean() - a.mean())[..., tf.newaxis]))))
         return kl_div
+
+class CGP_VAE(GP_VAE):
+    def __init__(self, *args, corruption_factor=0.1, **kwargs):
+        """ Proposed GP-VAE model with Gaussian Process prior
+            :param corruption_factor: Proportion of data points corrupted in each element in the batches
+        """
+        super(CGP_VAE, self).__init__(*args, **kwargs)
+        self.corruption = corruption_factor
+        assert self.latent_dim == self.corruption * self.data_dim * 2
+
+    def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
+        assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
+        x = tf.identity(x)  # in case x is not a Tensor already...
+        x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
+
+        if m_mask is not None:
+            m_mask = tf.identity(m_mask)  # in case m_mask is not a Tensor already...
+            m_mask = tf.tile(m_mask, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
+            m_mask = tf.cast(m_mask, tf.bool)
+
+        pz = self._get_prior(corruption=m_mask)
+        qz_x = self.encode(x)
+        z = qz_x.sample()
+        px_z = self.decode(z, x)
+
+        nll = -px_z.log_prob(x)  # shape=(M*K*BS, TL, D)
+        nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
+        if m_mask is not None:
+            nll = tf.where(m_mask, tf.zeros_like(nll), nll)  # if not HI-VAE, m_mask is always zeros
+        nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
+        rl = tf.norm(px_z.mean() - clean_input, ord='fro')
+        if self.K > 1:
+            kl = qz_x.log_prob(z) - pz.log_prob(z)  # shape=(M*K*BS, TL or d)
+            kl = tf.where(tf.is_finite(kl), kl, tf.zeros_like(kl))
+            kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
+
+            weights = -nll - kl  # shape=(M*K*BS)
+            weights = tf.reshape(weights, [self.M, self.K, -1])  # shape=(M, K, BS)
+
+            elbo = reduce_logmeanexp(weights, axis=1)  # shape=(M, 1, BS)
+            elbo = rl - tf.reduce_mean(elbo)  # scalar
+        else:
+            # if K==1, compute KL analytically
+            kl = self.kl_divergence(qz_x, pz)  # shape=(M*K*BS, TL or d)
+            kl = tf.where(tf.math.is_finite(kl), kl, tf.zeros_like(kl))
+            kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
+
+            elbo = -nll - self.beta * kl  # shape=(M*K*BS) K=1
+            elbo = rl - tf.reduce_mean(elbo)  # scalar
+
+        if return_parts:
+            nll = tf.reduce_mean(nll)  # scalar
+            kl = tf.reduce_mean(kl)  # scalar
+            return elbo, nll, kl
+        else:
+            return elbo
+
+    def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
+        return self._compute_loss(x, return_parts=return_parts)
+
+    def decode(self, z, c_i=None):
+        z = tf.concat([z, tf.reshape(c_i, z.shape)])
+        num_dim = len(z.shape)
+        assert num_dim > 2
+        perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
+        return self.decoder(tf.transpose(z, perm=perm))

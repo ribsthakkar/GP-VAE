@@ -42,24 +42,24 @@ FLAGS = flags.FLAGS
 # flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
 
 # SPRITES config GP-VAE
-# flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
-# flags.DEFINE_list('encoder_sizes', [32, 256, 256], 'Layer sizes of the encoder')
-# flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
-# flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('beta', 0.1, 'Factor to weigh the KL term (similar to beta-VAE)')
-# flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
+flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
+flags.DEFINE_list('encoder_sizes', [32, 256, 256], 'Layer sizes of the encoder')
+flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
+flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
+flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
+flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
+flags.DEFINE_float('beta', 0.1, 'Factor to weigh the KL term (similar to beta-VAE)')
+flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
 
 # Physionet config
-flags.DEFINE_integer('latent_dim', 35, 'Dimensionality of the latent space')
-flags.DEFINE_list('encoder_sizes', [128, 128], 'Layer sizes of the encoder')
-flags.DEFINE_list('decoder_sizes', [256, 256], 'Layer sizes of the decoder')
-flags.DEFINE_integer('window_size', 24, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
-flags.DEFINE_float('sigma', 1.005, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
-flags.DEFINE_float('length_scale', 7.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-flags.DEFINE_float('beta', 0.2, 'Factor to weigh the KL term (similar to beta-VAE)')
-flags.DEFINE_integer('num_epochs', 40, 'Number of training epochs')
+# flags.DEFINE_integer('latent_dim', 35, 'Dimensionality of the latent space')
+# flags.DEFINE_list('encoder_sizes', [128, 128], 'Layer sizes of the encoder')
+# flags.DEFINE_list('decoder_sizes', [256, 256], 'Layer sizes of the decoder')
+# flags.DEFINE_integer('window_size', 24, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
+# flags.DEFINE_float('sigma', 1.005, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
+# flags.DEFINE_float('length_scale', 7.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
+# flags.DEFINE_float('beta', 0.2, 'Factor to weigh the KL term (similar to beta-VAE)')
+# flags.DEFINE_integer('num_epochs', 40, 'Number of training epochs')
 
 # Flags with common default values for all three datasets
 flags.DEFINE_float('learning_rate', 1e-3, 'Learning rate for training')
@@ -71,12 +71,13 @@ flags.DEFINE_string('basedir', "models", 'Directory where the models should be s
 flags.DEFINE_string('data_dir', "", 'Directory from where the data should be read in')
 flags.DEFINE_enum('data_type', 'hmnist', ['hmnist', 'physionet', 'sprites'], 'Type of data to be trained on')
 flags.DEFINE_integer('seed', 1337, 'Seed for the random number generator')
-flags.DEFINE_enum('model_type', 'gp-vae', ['vae', 'hi-vae', 'gp-vae'], 'Type of model to be trained')
+flags.DEFINE_enum('model_type', 'cgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae'], 'Type of model to be trained')
 flags.DEFINE_integer('cnn_kernel_size', 3, 'Kernel size for the CNN preprocessor')
 flags.DEFINE_list('cnn_sizes', [256], 'Number of filters for the layers of the CNN preprocessor')
 flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_boolean('banded_covar', False, 'Use a banded covariance matrix instead of a diagonal one for the output of the inference network: Ignored if model_type is not gp-vae')
 flags.DEFINE_integer('batch_size', 64, 'Batch size for training')
+flags.DEFINE_float('corruption_rate', 0.4, 'Percentage of Corrupted ', 0.0, 1.0)
 
 flags.DEFINE_integer('M', 1, 'Number of samples for ELBO estimation')
 flags.DEFINE_integer('K', 1, 'Number of importance sampling weights')
@@ -184,9 +185,9 @@ def main(argv):
     else:
         raise ValueError("Data type must be one of ['hmnist', 'physionet', 'sprites']")
 
-    tf_x_train_miss = tf.data.Dataset.from_tensor_slices((x_train_miss, m_train_miss))\
+    tf_x_train_miss = tf.data.Dataset.from_tensor_slices((x_train_full, x_train_miss, m_train_miss))\
                                      .shuffle(len(x_train_miss)).batch(FLAGS.batch_size).repeat()
-    tf_x_val_miss = tf.data.Dataset.from_tensor_slices((x_val_miss, m_val_miss)).batch(FLAGS.batch_size).repeat()
+    tf_x_val_miss = tf.data.Dataset.from_tensor_slices((x_val_full, x_val_miss, m_val_miss)).batch(FLAGS.batch_size).repeat()
     tf_x_val_miss = tf.compat.v1.data.make_one_shot_iterator(tf_x_val_miss)
 
     # Build Conv2D preprocessor for image data
@@ -224,8 +225,18 @@ def main(argv):
                        length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
                        image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
                        beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type)
+    elif FLAGS.model_type == "cgp-vae":
+        encoder = BandedJointEncoder if FLAGS.banded_covar else JointEncoder
+        model = CGP_VAE(latent_dim=FLAGS.latent_dim, data_dim=data_dim, time_length=time_length,
+                           encoder_sizes=FLAGS.encoder_sizes, encoder=encoder,
+                           decoder_sizes=FLAGS.decoder_sizes, decoder=decoder,
+                           kernel=FLAGS.kernel, sigma=FLAGS.sigma,
+                           length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
+                           image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
+                           beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type,
+                            corruption_factor=FLAGS.corruption_rate)
     else:
-        raise ValueError("Model type must be one of ['vae', 'hi-vae', 'gp-vae']")
+        raise ValueError("Model type must be one of ['vae', 'hi-vae', 'gp-vae','cgp-vae']")
 
 
     ########################
@@ -271,11 +282,11 @@ def main(argv):
 
     t0 = time.time()
     with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
-        for i, (x_seq, m_seq) in enumerate(tf_x_train_miss.take(num_steps)):
+        for i, (x_c_seq, x_seq, m_seq) in enumerate(tf_x_train_miss.take(num_steps)):
             try:
                 with tf.GradientTape() as tape:
                     tape.watch(trainable_vars)
-                    loss = model.compute_loss(x_seq, m_mask=m_seq)
+                    loss = model.compute_loss(x_seq, m_mask=m_seq, clean_input=x_c_seq)
                     losses_train.append(loss.numpy())
                 grads = tape.gradient(loss, trainable_vars)
                 grads = [np.nan_to_num(grad) for grad in grads]
@@ -288,7 +299,7 @@ def main(argv):
                     print("================================================")
                     print("Learning rate: {} | Global gradient norm: {:.2f}".format(optimizer._lr, global_norm))
                     print("Step {}) Time = {:2f}".format(i, time.time() - t0))
-                    loss, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True)
+                    loss, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True, clean_input=x_c_seq)
                     print("Train loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(loss, nll, kl))
 
                     saver.save(checkpoint_prefix)
@@ -297,8 +308,8 @@ def main(argv):
                     tf.contrib.summary.scalar("nll_train", nll)
 
                     # Validation loss
-                    x_val_batch, m_val_batch = tf_x_val_miss.get_next()
-                    val_loss, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True)
+                    x_full_batch, x_val_batch, m_val_batch = tf_x_val_miss.get_next()
+                    val_loss, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True, clean_input=x_c_seq)
                     losses_val.append(val_loss.numpy())
                     print("Validation loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(val_loss, val_nll, val_kl))
 
@@ -308,7 +319,7 @@ def main(argv):
 
                     if FLAGS.data_type in ["hmnist", "sprites"]:
                         # Draw reconstructed images
-                        x_hat = model.decode(model.encode(x_seq).sample()).mean()
+                        x_hat = model.decode(model.encode(x_seq).sample(), c_i=x_seq).mean()
                         tf.contrib.summary.image("input_train", tf.reshape(x_seq, [-1]+list(img_shape)))
                         tf.contrib.summary.image("reconstruction_train", tf.reshape(x_hat, [-1]+list(img_shape)))
                     elif FLAGS.data_type == 'physionet':
@@ -322,7 +333,7 @@ def main(argv):
                         mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m).numpy()
                                            for x, y, m in get_val_batches()]) / n_missings
 
-                        x_val_imputed = np.vstack([model.decode(model.encode(x_batch).mean()).mean().numpy()
+                        x_val_imputed = np.vstack([model.decode(model.encode(x_batch).mean(),c_i=x_batch).mean().numpy()
                                                    for x_batch in x_val_miss_batches])
                         x_val_imputed[m_val_miss == 0] = x_val_miss[m_val_miss == 0]  # impute gt observed values
 
@@ -373,7 +384,7 @@ def main(argv):
     # Save imputed values
     z_mean = [model.encode(x_batch).mean().numpy() for x_batch in x_val_miss_batches]
     np.save(os.path.join(outdir, "z_mean"), np.vstack(z_mean))
-    x_val_imputed = np.vstack([model.decode(z_batch).mean().numpy() for z_batch in z_mean])
+    x_val_imputed = np.vstack([model.decode(z_batch, c_i=x_m_batch).mean().numpy() for z_batch, x_m_batch  in zip(z_mean, x_val_miss_batches)])
     np.save(os.path.join(outdir, "imputed_no_gt"), x_val_imputed)
 
     # impute gt observed values
@@ -433,7 +444,7 @@ def main(argv):
 
         fig, axes = plt.subplots(nrows=3, ncols=x_val_miss.shape[1], figsize=(2*x_val_miss.shape[1], 6))
 
-        x_hat = model.decode(model.encode(x_val_miss[img_index: img_index+1]).mean()).mean().numpy()
+        x_hat = model.decode(model.encode(x_val_miss[img_index: img_index+1]).mean(), c_i=x_val_miss[img_index: img_index+1]).mean().numpy()
         seqs = [x_val_miss[img_index:img_index+1], x_hat, x_val_full[img_index:img_index+1]]
 
         for axs, seq in zip(axes, seqs):
