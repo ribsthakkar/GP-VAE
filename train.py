@@ -309,7 +309,7 @@ def main(argv):
 
                     # Validation loss
                     x_full_batch, x_val_batch, m_val_batch = tf_x_val_miss.get_next()
-                    val_loss, val_rl, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True, clean_input=x_val_full)
+                    val_loss, val_rl, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True, clean_input=x_full_batch)
                     losses_val.append(val_loss.numpy())
                     print("Validation loss = {:.3f}| RL = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(val_loss, val_rl, val_nll, val_kl))
 
