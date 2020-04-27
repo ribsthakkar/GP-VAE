@@ -545,3 +545,6 @@ class CGP_VAE(GP_VAE):
             perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
             data = tf.transpose(tf.random_uniform(shape=(num_samples, self.latent_dim)), perm=perm)
         return self.decode(noise, data)
+
+    def kl_divergence(self, a, b):
+        return tfd.kl_divergence(a, b)
