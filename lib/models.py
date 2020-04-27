@@ -226,7 +226,7 @@ class VAE(tf.keras.Model):
     def __call__(self, inputs):
         return self.decode(self.encode(inputs).sample()).sample()
 
-    def generate(self, noise=None, num_samples=1):
+    def generate(self, noise=None, data=None, num_samples=1):
         if noise is None:
             noise = tf.random_normal(shape=(num_samples, self.latent_dim))
         return self.decode(noise)
@@ -243,7 +243,7 @@ class VAE(tf.keras.Model):
         if y is None: y = x
 
         z_sample = self.encode(x).sample()
-        x_hat_dist = self.decode(z_sample)
+        x_hat_dist = self.decode(z_sample, x)
         nll = -x_hat_dist.log_prob(y)  # shape=(BS, TL, D)
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
         if m_mask is not None:
@@ -257,7 +257,7 @@ class VAE(tf.keras.Model):
         if y is None: y = x
 
         z_mean = self.encode(x).mean()
-        x_hat_mean = self.decode(z_mean).mean()  # shape=(BS, TL, D)
+        x_hat_mean = self.decode(z_mean, x).mean()  # shape=(BS, TL, D)
         if binary:
             x_hat_mean = tf.round(x_hat_mean)
         mse = tf.math.squared_difference(x_hat_mean, y)
@@ -451,13 +451,13 @@ class CGP_VAE(GP_VAE):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
         x = tf.identity(x)  # in case x is not a Tensor already...
         x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
-
+        corruption = tf.tile(tf.identity(m_mask), [self.M * self.K, 1, 1])
         if m_mask is not None:
             m_mask = tf.identity(m_mask)  # in case m_mask is not a Tensor already...
             m_mask = tf.tile(m_mask, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
             m_mask = tf.cast(m_mask, tf.bool)
 
-        pz = self._get_prior(corruption=m_mask)
+        pz = self._get_prior(corruption=corruption)
         qz_x = self.encode(x)
         z = qz_x.sample()
         px_z = self.decode(z, x)
@@ -502,3 +502,15 @@ class CGP_VAE(GP_VAE):
         assert num_dim > 2
         perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
         return self.decoder(tf.concat((tf.transpose(z, perm=perm), c_i),  axis=2))
+
+    def __call__(self, inputs):
+        return self.decode(self.encode(inputs).sample(), inputs).sample()
+
+    def generate(self, noise=None, data=None, num_samples=1):
+        if noise is None:
+            noise = tf.random_normal(shape=(num_samples, self.latent_dim))
+        if data is None:
+            num_dim = len(self.latent_dim)
+            perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
+            data = tf.transpose(tf.random_uniform(shape=(num_samples, self.latent_dim)), perm=perm)
+        return self.decode(noise, data)
