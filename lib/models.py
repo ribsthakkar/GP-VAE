@@ -519,10 +519,11 @@ class CGP_VAE(GP_VAE):
             tiled_matrices.append(tf.tile(tf.expand_dims(kernel_matrices[i], 0), [multiplier, 1, 1]))
         kernel_matrix_tiled = np.concatenate(tiled_matrices)
         assert len(kernel_matrix_tiled) == self.latent_dim
-        corruption = tf.transpose(tf.reduce_mean(corruption, 0), [1, 0]) # hotfix may not work with more than 3 dimensions
+        corruption = tf.transpose(corruption, [0, 2, 1]) # hotfix may not work with more than 3 dimensions
+        kern_mat_cov = tf.stack([kernel_matrix_tiled] * len(corruption))
         return tfd.MultivariateNormalFullCovariance(
             loc=corruption,
-            covariance_matrix=kernel_matrix_tiled)
+            covariance_matrix=kern_mat_cov)
 
     def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts, clean_input=clean_input)
