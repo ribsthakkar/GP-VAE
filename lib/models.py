@@ -286,7 +286,7 @@ class VAE(tf.keras.Model):
         if m_mask is not None:
             nll = tf.where(m_mask, tf.zeros_like(nll), nll)  # if not HI-VAE, m_mask is always zeros
         nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
-
+        rl = 0
         if self.K > 1:
             kl = qz_x.log_prob(z) - pz.log_prob(z)  # shape=(M*K*BS, TL or d)
             kl = tf.where(tf.is_finite(kl), kl, tf.zeros_like(kl))
@@ -304,14 +304,14 @@ class VAE(tf.keras.Model):
             kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
 
             elbo = -nll - self.beta * kl  # shape=(M*K*BS) K=1
-            elbo = tf.reduce_mean(elbo)  # scalar
+            elbo = rl - tf.reduce_mean(elbo)  # scalar
 
         if return_parts:
             nll = tf.reduce_mean(nll)  # scalar
             kl = tf.reduce_mean(kl)  # scalar
-            return -elbo, nll, kl
+            return elbo, rl, nll, kl
         else:
-            return -elbo
+            return elbo
 
     def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         del m_mask
@@ -490,7 +490,7 @@ class CGP_VAE(GP_VAE):
         if return_parts:
             nll = tf.reduce_mean(nll)  # scalar
             kl = tf.reduce_mean(kl)  # scalar
-            return elbo, nll, kl
+            return elbo, rl, nll, kl
         else:
             return elbo
 

@@ -299,8 +299,8 @@ def main(argv):
                     print("================================================")
                     print("Learning rate: {} | Global gradient norm: {:.2f}".format(optimizer._lr, global_norm))
                     print("Step {}) Time = {:2f}".format(i, time.time() - t0))
-                    loss, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True, clean_input=x_c_seq)
-                    print("Train loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(loss, nll, kl))
+                    loss, rl, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True, clean_input=x_c_seq)
+                    print("Train loss = {:.3f} | RL = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(loss, rl,  nll, kl))
 
                     saver.save(checkpoint_prefix)
                     tf.contrib.summary.scalar("loss_train", loss)
@@ -309,9 +309,9 @@ def main(argv):
 
                     # Validation loss
                     x_full_batch, x_val_batch, m_val_batch = tf_x_val_miss.get_next()
-                    val_loss, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True, clean_input=x_c_seq)
+                    val_loss, val_rl, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True, clean_input=x_c_seq)
                     losses_val.append(val_loss.numpy())
-                    print("Validation loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(val_loss, val_nll, val_kl))
+                    print("Validation loss = {:.3f}| RL = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(val_loss, val_rl, val_nll, val_kl))
 
                     tf.contrib.summary.scalar("loss_val", val_loss)
                     tf.contrib.summary.scalar("kl_val", val_kl)
