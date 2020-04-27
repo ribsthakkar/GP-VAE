@@ -104,7 +104,9 @@ venv.bak/
 
 # IDE
 .idea/
-data/hmnist/hmnist_mnar.npz
+data/hmnist/
+data/physionet/
+data/sprites/
 
 # Model Runs
 models/*_debug/
