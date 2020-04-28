@@ -102,7 +102,7 @@ def main(argv):
         FLAGS.decoder_sizes.remove(0)
 
     # Make up full exp name
-    timestamp = datetime.now().strftime("%y%m%d")
+    timestamp = datetime.now().strftime("%y%m%d_%H_%M_%S")
     full_exp_name = "{}_{}".format(timestamp, FLAGS.exp_name)
     outdir = os.path.join(FLAGS.basedir, full_exp_name)
     if not os.path.exists(outdir): os.mkdir(outdir)
