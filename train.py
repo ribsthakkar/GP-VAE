@@ -32,24 +32,24 @@ from lib.models import *
 FLAGS = flags.FLAGS
 
 # HMNIST config
-# flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
-# flags.DEFINE_list('encoder_sizes', [256, 256], 'Layer sizes of the encoder')
-# flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
-# flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('beta', 0.8, 'Factor to weigh the KL term (similar to beta-VAE)')
-# flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
-
-# SPRITES config GP-VAE
 flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
-flags.DEFINE_list('encoder_sizes', [32, 256, 256], 'Layer sizes of the encoder')
+flags.DEFINE_list('encoder_sizes', [256, 256], 'Layer sizes of the encoder')
 flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
 flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-flags.DEFINE_float('beta', 0.1, 'Factor to weigh the KL term (similar to beta-VAE)')
-flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
+flags.DEFINE_float('beta', 0.8, 'Factor to weigh the KL term (similar to beta-VAE)')
+flags.DEFINE_integer('num_epochs', 2, 'Number of training epochs')
+
+# SPRITES config GP-VAE
+# flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
+# flags.DEFINE_list('encoder_sizes', [32, 256, 256], 'Layer sizes of the encoder')
+# flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
+# flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
+# flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
+# flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
+# flags.DEFINE_float('beta', 0.1, 'Factor to weigh the KL term (similar to beta-VAE)')
+# flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
 
 # Physionet config
 # flags.DEFINE_integer('latent_dim', 35, 'Dimensionality of the latent space')
@@ -77,7 +77,12 @@ flags.DEFINE_list('cnn_sizes', [256], 'Number of filters for the layers of the C
 flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_boolean('banded_covar', False, 'Use a banded covariance matrix instead of a diagonal one for the output of the inference network: Ignored if model_type is not gp-vae')
 flags.DEFINE_integer('batch_size', 64, 'Batch size for training')
-flags.DEFINE_float('corruption_rate', 0.4, 'Percentage of Corrupted ', 0.0, 1.0)
+flags.DEFINE_float('corruption_rate', 0.6, 'Percentage of Corrupted ', 0.0, 1.0)
+flags.DEFINE_bool('conv_corruption', True, 'Apply Convolution to targeted m_mask distribution to reduce latent dimension size in CGP-VAE. '
+                                           'If False, then'
+                                           ' latent dimension size must match corruption_rate*data_dimensions*2')
+flags.DEFINE_integer('conv_cor_size', 3, 'Size of convolution filter for conv_corruption')
+flags.DEFINE_integer('conv_cor_stride', 3, 'Strid of convolution filter for conv_corruption')
 
 flags.DEFINE_integer('M', 1, 'Number of samples for ELBO estimation')
 flags.DEFINE_integer('K', 1, 'Number of importance sampling weights')
@@ -113,7 +118,7 @@ def main(argv):
     ###################################
     # Define data specific parameters #
     ###################################
-
+    img_shape = None
     if FLAGS.data_type == "hmnist":
         FLAGS.data_dir = "data/hmnist/hmnist_mnar.npz"
         data_dim = 784
@@ -227,14 +232,15 @@ def main(argv):
                        beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type)
     elif FLAGS.model_type == "cgp-vae":
         encoder = BandedJointEncoder if FLAGS.banded_covar else JointEncoder
-        model = CGP_VAE(latent_dim= int(data_dim*FLAGS.corruption_rate*2), data_dim=data_dim, time_length=time_length,
+        model = CGP_VAE(latent_dim= 100, data_dim=data_dim, time_length=time_length,
                            encoder_sizes=FLAGS.encoder_sizes, encoder=encoder,
                            decoder_sizes=FLAGS.decoder_sizes, decoder=decoder,
                            kernel=FLAGS.kernel, sigma=FLAGS.sigma,
                            length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
                            image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
                            beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type,
-                            corruption_factor=FLAGS.corruption_rate)
+                            corruption_factor=FLAGS.corruption_rate, conv_corr=FLAGS.conv_corruption,
+                            conv_size=FLAGS.conv_cor_size, conv_stride=FLAGS.conv_cor_stride, img_shape=img_shape)
     else:
         raise ValueError("Model type must be one of ['vae', 'hi-vae', 'gp-vae','cgp-vae']")
 

@@ -3,12 +3,14 @@
 TensorFlow models for use in this project.
 
 """
+import operator
 
 from .utils import *
 from .nn_utils import *
 from .gp_kernel import *
 from tensorflow_probability import distributions as tfd
 import tensorflow as tf
+from functools import reduce
 
 
 # Encoders
@@ -439,13 +441,32 @@ class GP_VAE(HI_VAE):
         return kl_div
 
 class CGP_VAE(GP_VAE):
-    def __init__(self, *args, corruption_factor=0.1, **kwargs):
-        """ Proposed GP-VAE model with Gaussian Process prior
+    def __init__(self, *args, corruption_factor=0.1, conv_corr=True, conv_size=3, conv_stride=3, img_shape=None, **kwargs):
+        """ Proposed CGP-VAE model with Gaussian Process prior
             :param corruption_factor: Proportion of data points corrupted in each element in the batches
+            :param conv_corr: True if convolution will be applied to calculate targeted mask, False if general method
+            :param conv_size: Size of convolution filter to calculate targeted latent distribution
+            :param conv_stride: Stride taken when convolving mask to calculate targeted latent distribution
+            :param img_shape: Shape of Original Image
         """
         super(CGP_VAE, self).__init__(*args, **kwargs)
         self.corruption = corruption_factor
-        assert self.latent_dim == int(self.corruption * self.data_dim * 2)
+        self.im_shp = img_shape
+        self.conv_cor = conv_corr
+        self.conv_size = conv_size
+        self.conv_stride = conv_stride
+        if self.conv_cor:
+            row_r = tf.reshape(tf.range(0, self.im_shp[0], dtype=tf.float32), shape=(self.im_shp[0], 1))
+            row_r = tf.reshape(tf.tile(row_r, [1, self.im_shp[1]]), [1] + list(self.im_shp[:2]) + [1])
+            col_r = tf.reshape(tf.range(0, self.im_shp[1], dtype=tf.float32), shape=(1, self.im_shp[1]))
+            col_r = tf.reshape(tf.tile(col_r, [self.im_shp[0], 1]), [1] + list(self.im_shp[:2]) + [1])
+            print(row_r.shape, col_r.shape)
+            self.convolved_row = tf.reshape(tf.math.floor(tf.nn.avg_pool2d(row_r, ksize=self.conv_size, strides=self.conv_stride, padding='SAME')), shape=[-1])
+            self.convolved_col = tf.reshape(tf.math.floor(tf.nn.avg_pool2d(col_r, ksize=self.conv_size, strides=self.conv_stride, padding='SAME')), shape=[-1])
+            # print(self.convolved_row, self.convolved_col)
+            assert self.latent_dim <= reduce(operator.mul,self.convolved_row.shape, self.im_shp[-1])
+        else:
+            assert self.latent_dim == int(self.corruption * self.data_dim * 2)
 
     def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
@@ -453,8 +474,19 @@ class CGP_VAE(GP_VAE):
         x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
         m_mask = tf.identity(m_mask)  # in case m_mask is not a Tensor already...
         m_mask = tf.tile(m_mask, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
-        _, corruption = tf.math.top_k(m_mask, k=self.latent_dim)
-        corruption = tf.cast(tf.identity(corruption), dtype=tf.float32)
+        if self.conv_cor:
+            reshp_mask = tf.reshape(m_mask, shape=[m_mask.shape[0] * m_mask.shape[1]] + list(self.im_shp))
+            # print(reshp_mask.shape, reshp_mask)
+            convolved_mask = tf.reshape(tf.nn.avg_pool2d(reshp_mask, ksize=self.conv_size, strides=self.conv_stride, padding='SAME'),
+                                        shape=[m_mask.shape[0], m_mask.shape[1]] + [reduce(operator.mul,self.convolved_row.shape, self.im_shp[-1])])
+            # print(convolved_mask.shape)
+            _, avg_corruption = tf.math.top_k(convolved_mask, k=self.latent_dim, sorted=False)
+            # avg_corruption = tf.cast(avg_corruption, dtype=tf.float32)
+            corruption = tf.gather (self.convolved_row, avg_corruption) * (self.im_shp[1] * self.im_shp[2]) + \
+                  tf.gather(self.convolved_col, avg_corruption) * (self.im_shp[2])
+        else:
+            _, corruption = tf.math.top_k(m_mask, k=self.latent_dim, sorted=False)
+            corruption = tf.cast(tf.identity(corruption), dtype=tf.float32)
         m_mask = tf.cast(m_mask, tf.bool)
 
         pz = self._get_prior(corruption=corruption)
