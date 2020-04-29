@@ -466,7 +466,7 @@ class CGP_VAE(GP_VAE):
             # print(self.convolved_row, self.convolved_col)
             assert self.latent_dim <= reduce(operator.mul,self.convolved_row.shape, self.im_shp[-1])
         else:
-            assert self.latent_dim == int(self.corruption * self.data_dim * 2)
+            assert self.latent_dim == int(self.corruption * self.data_dim)
 
     def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
@@ -493,35 +493,34 @@ class CGP_VAE(GP_VAE):
         qz_x = self.encode(x)
         z = qz_x.sample()
         px_z = self.decode(z, x)
-
-        nll = -px_z.log_prob(x)  # shape=(M*K*BS, TL, D)
+        nll = -px_z.log_prob(clean_input)  # shape=(M*K*BS, TL, D) # want to compare nll of reconstructing new image
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
-        if m_mask is not None:
-            nll = tf.where(m_mask, tf.zeros_like(nll), nll)  # if not HI-VAE, m_mask is always zeros
         nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
-        rl = tf.norm(px_z.mean() - clean_input)
+
+        rl = tf.norm(px_z.mean() - clean_input, axis=(-2,-1))**2 # Euclidian reconstruction loss term
         if self.K > 1:
             kl = qz_x.log_prob(z) - pz.log_prob(z)  # shape=(M*K*BS, TL or d)
             kl = tf.where(tf.is_finite(kl), kl, tf.zeros_like(kl))
             kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
 
-            weights = -nll - kl  # shape=(M*K*BS)
+            weights = -rl -nll - kl  # shape=(M*K*BS)
             weights = tf.reshape(weights, [self.M, self.K, -1])  # shape=(M, K, BS)
 
             elbo = reduce_logmeanexp(weights, axis=1)  # shape=(M, 1, BS)
-            elbo = rl - tf.reduce_mean(elbo)  # scalar
+            elbo = -tf.reduce_mean(elbo)  # scalar
         else:
             # if K==1, compute KL analytically
             kl = self.kl_divergence(qz_x, pz)  # shape=(M*K*BS, TL or d)
             kl = tf.where(tf.math.is_finite(kl), kl, tf.zeros_like(kl))
             kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
 
-            elbo = -nll - self.beta * kl  # shape=(M*K*BS) K=1
-            elbo = rl - tf.reduce_mean(elbo)  # scalar
+            elbo = -rl - nll - self.beta * kl  # shape=(M*K*BS) K=1
+            elbo = -tf.reduce_mean(elbo)  # scalar
 
         if return_parts:
             nll = tf.reduce_mean(nll)  # scalar
             kl = tf.reduce_mean(kl)  # scalar
+            rl = tf.reduce_mean(rl)
             return elbo, rl, nll, kl
         else:
             return elbo
@@ -552,10 +551,10 @@ class CGP_VAE(GP_VAE):
         kernel_matrix_tiled = np.concatenate(tiled_matrices)
         assert len(kernel_matrix_tiled) == self.latent_dim
         corruption = tf.transpose(corruption, [0, 2, 1]) # hotfix may not work with more than 3 dimensions
-        kern_mat_cov = tf.stack([kernel_matrix_tiled] * len(corruption))
+        # kern_mat_cov = tf.stack([kernel_matrix_tiled] * len(corruption))
         return tfd.MultivariateNormalFullCovariance(
             loc=corruption,
-            covariance_matrix=kern_mat_cov)
+            covariance_matrix=kernel_matrix_tiled)
 
     def compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
         return self._compute_loss(x, m_mask=m_mask, return_parts=return_parts, clean_input=clean_input)
