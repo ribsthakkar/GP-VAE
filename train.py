@@ -39,7 +39,7 @@ flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignor
 flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('beta', 0.8, 'Factor to weigh the KL term (similar to beta-VAE)')
-flags.DEFINE_integer('num_epochs', 2, 'Number of training epochs')
+flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
 
 # SPRITES config GP-VAE
 # flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
