@@ -482,10 +482,10 @@ class CGP_VAE(GP_VAE):
             # print(convolved_mask.shape)
             _, avg_corruption = tf.math.top_k(convolved_mask, k=self.latent_dim, sorted=False)
             # avg_corruption = tf.cast(avg_corruption, dtype=tf.float32)
-            corruption = tf.gather (self.convolved_row, avg_corruption) * (self.im_shp[1] * self.im_shp[2]) + \
-                  tf.gather(self.convolved_col, avg_corruption) * (self.im_shp[2])
+            corruption = (tf.gather (self.convolved_row, avg_corruption) * (self.im_shp[1] * self.im_shp[2]) +
+                  tf.gather(self.convolved_col, avg_corruption) * (self.im_shp[2]) - self.data_dim//2) / self.data_dim
         else:
-            _, corruption = tf.math.top_k(m_mask, k=self.latent_dim, sorted=False)
+            _, corruption = (tf.math.top_k(m_mask, k=self.latent_dim, sorted=False) - self.data_dim//2) / self.data_dim
             corruption = tf.cast(tf.identity(corruption), dtype=tf.float32)
         m_mask = tf.cast(m_mask, tf.bool)
 
@@ -497,6 +497,7 @@ class CGP_VAE(GP_VAE):
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
         nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
 
+        # print(pz.mean(), z)
         rl = tf.norm(px_z.mean() - clean_input, axis=(-2,-1))**2 # Euclidian reconstruction loss term
         if self.K > 1:
             kl = qz_x.log_prob(z) - pz.log_prob(z)  # shape=(M*K*BS, TL or d)
