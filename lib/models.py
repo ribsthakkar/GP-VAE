@@ -457,12 +457,15 @@ class CGP_VAE(GP_VAE):
         self.conv_stride = conv_stride
         if self.conv_cor:
             row_r = tf.reshape(tf.range(0, self.im_shp[0], dtype=tf.float32), shape=(self.im_shp[0], 1))
-            row_r = tf.reshape(tf.tile(row_r, [1, self.im_shp[1]]), [1] + list(self.im_shp[:2]) + [1])
+            row_r = tf.reshape(tf.tile(row_r, [self.im_shp[2], self.im_shp[1]]), [1] + list(self.im_shp))
             col_r = tf.reshape(tf.range(0, self.im_shp[1], dtype=tf.float32), shape=(1, self.im_shp[1]))
-            col_r = tf.reshape(tf.tile(col_r, [self.im_shp[0], 1]), [1] + list(self.im_shp[:2]) + [1])
-            print(row_r.shape, col_r.shape)
+            col_r = tf.reshape(tf.tile(col_r, [self.im_shp[0], self.im_shp[2]]), [1] + list(self.im_shp))
+            dep_r = tf.reshape(tf.range(0, self.im_shp[2], dtype=tf.float32), shape=(1, self.im_shp[2]))
+            dep_r = tf.reshape(tf.tile(dep_r, [self.im_shp[0], self.im_shp[1]]), [1] + list(self.im_shp))
+            # print(row_r.shape, col_r.shape)
             self.convolved_row = tf.reshape(tf.math.floor(tf.nn.avg_pool2d(row_r, ksize=self.conv_size, strides=self.conv_stride, padding='SAME')), shape=[-1])
             self.convolved_col = tf.reshape(tf.math.floor(tf.nn.avg_pool2d(col_r, ksize=self.conv_size, strides=self.conv_stride, padding='SAME')), shape=[-1])
+            self.convolved_dep = tf.reshape(tf.math.floor(tf.nn.avg_pool2d(dep_r, ksize=self.conv_size, strides=self.conv_stride, padding='SAME')), shape=[-1])
             # print(self.convolved_row, self.convolved_col)
             assert self.latent_dim <= reduce(operator.mul,self.convolved_row.shape, self.im_shp[-1])
         else:
@@ -478,12 +481,13 @@ class CGP_VAE(GP_VAE):
             reshp_mask = tf.reshape(m_mask, shape=[m_mask.shape[0] * m_mask.shape[1]] + list(self.im_shp))
             # print(reshp_mask.shape, reshp_mask)
             convolved_mask = tf.reshape(tf.nn.avg_pool2d(reshp_mask, ksize=self.conv_size, strides=self.conv_stride, padding='SAME'),
-                                        shape=[m_mask.shape[0], m_mask.shape[1]] + [reduce(operator.mul,self.convolved_row.shape, self.im_shp[-1])])
+                                        shape=[m_mask.shape[0], m_mask.shape[1]] + [reduce(operator.mul,self.convolved_row.shape)])
             # print(convolved_mask.shape)
             _, avg_corruption = tf.math.top_k(convolved_mask, k=self.latent_dim, sorted=False)
             # avg_corruption = tf.cast(avg_corruption, dtype=tf.float32)
             corruption = (tf.gather (self.convolved_row, avg_corruption) * (self.im_shp[1] * self.im_shp[2]) +
-                  tf.gather(self.convolved_col, avg_corruption) * (self.im_shp[2]) - self.data_dim//2) / self.data_dim
+                  tf.gather(self.convolved_col, avg_corruption) * (self.im_shp[2]) + tf.gather(self.convolved_dep, avg_corruption)
+                          - self.data_dim//2) / self.data_dim
         else:
             _, corruption = (tf.math.top_k(m_mask, k=self.latent_dim, sorted=False) - self.data_dim//2) / self.data_dim
             corruption = tf.cast(tf.identity(corruption), dtype=tf.float32)
