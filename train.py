@@ -238,7 +238,7 @@ def main(argv):
                            kernel=FLAGS.kernel, sigma=FLAGS.sigma,
                            length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
                            image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
-                           beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type,
+                           beta=0.2, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type,
                             corruption_factor=FLAGS.corruption_rate, conv_corr=FLAGS.conv_corruption,
                             conv_size=FLAGS.conv_cor_size, conv_stride=FLAGS.conv_cor_stride, img_shape=img_shape)
     else:
@@ -328,6 +328,27 @@ def main(argv):
                         x_hat = model.decode(model.encode(x_seq).sample(), c_i=x_seq).mean()
                         tf.contrib.summary.image("input_train", tf.reshape(x_seq, [-1]+list(img_shape)))
                         tf.contrib.summary.image("reconstruction_train", tf.reshape(x_hat, [-1]+list(img_shape)))
+                        img_index = 0
+                        if FLAGS.data_type == "hmnist":
+                            im_shape = (28, 28)
+                            cmap = "gray"
+                        elif FLAGS.data_type == "sprites":
+                            im_shape = (64, 64, 3)
+                            cmap = None
+
+                        fig, axes = plt.subplots(nrows=3, ncols=x_val_miss.shape[1],
+                                                 figsize=(2 * x_val_miss.shape[1], 6))
+
+                        x_hat = model.decode(model.encode(x_val_miss[img_index: img_index + 1]).mean(),
+                                             c_i=x_val_miss[img_index: img_index + 1]).mean().numpy()
+                        seqs = [x_val_miss[img_index:img_index + 1], x_hat, x_val_full[img_index:img_index + 1]]
+
+                        for axs, seq in zip(axes, seqs):
+                            for ax, img in zip(axs, seq[0]):
+                                ax.imshow(img.reshape(im_shape), cmap=cmap)
+                                ax.axis('off')
+
+                        fig.savefig(os.path.join(outdir, "step_" +  str(i) + "_" + FLAGS.data_type + "_reconstruction.pdf"))
                     elif FLAGS.data_type == 'physionet':
                         # Eval MSE and AUROC on entire val set
                         x_val_miss_batches = np.array_split(x_val_miss, FLAGS.batch_size, axis=0)
