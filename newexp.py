@@ -48,8 +48,8 @@ flags.DEFINE_integer('num_steps', 0, 'Number of training steps: If non-zero it o
 flags.DEFINE_integer('print_interval', 0, 'Interval for printing the loss and saving the model during training')
 flags.DEFINE_string('exp_name', "debug", 'Name of the experiment')
 flags.DEFINE_string('basedir', "models", 'Directory where the models should be stored')
-flags.DEFINE_enum('tr_src', 'sprites', ['hmnist', 'sprites', 'both'], 'Source of data to be trained on')
-flags.DEFINE_enum('val_src', 'sprites', ['hmnist', 'sprites', 'both'], 'Source of data to be tested/validated on')
+flags.DEFINE_enum('tr_src', 'both', ['hmnist', 'sprites', 'both'], 'Source of data to be trained on')
+flags.DEFINE_enum('val_src', 'both', ['hmnist', 'sprites', 'both'], 'Source of data to be tested/validated on')
 flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_integer('seed', 1337, 'Seed for the random number generator')
 flags.DEFINE_enum('model_type', 'cgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae'], 'Type of model to be trained')
@@ -157,6 +157,8 @@ def main(argv):
         elif FLAGS.tr_src == 'both':
             h_data = np.load(hmnistdir)
             s_data = np.load(spdir)
+            print(h_data.shape, s_data.shape)
+            exit(1)
             x_train_full = np.concatenate((h_data['x_train_full'], s_data['x_train_full']))
             x_train_miss = np.concatenate((h_data['x_train_miss'], s_data['x_train_miss']))
             m_train_miss = np.concatenate((h_data['m_train_miss'], s_data['m_train_miss']))
@@ -176,9 +178,9 @@ def main(argv):
         elif FLAGS.val_src == 'both':
             h_data = np.load(hmnistdir)
             s_data = np.load(spdir)
-            x_val_full = np.concatenate((h_data['x_train_full'], s_data['x_train_full']))
-            x_val_miss = np.concatenate((h_data['x_train_miss'], s_data['x_train_miss']))
-            m_val_miss = np.concatenate((h_data['m_train_miss'], s_data['m_train_miss']))
+            x_val_full = np.concatenate((h_data['x_test_full'], s_data['x_test_full']))
+            x_val_miss = np.concatenate((h_data['x_test_miss'], s_data['x_test_miss']))
+            m_val_miss = np.concatenate((h_data['m_test_miss'], s_data['m_test_miss']))
         else:
             raise ValueError("Validation source must be one of ['hmnist', 'sprites', 'both']")
     else:
@@ -186,8 +188,8 @@ def main(argv):
 
     tf_x_train_miss = tf.data.Dataset.from_tensor_slices((x_train_full, x_train_miss, m_train_miss))\
                                      .shuffle(len(x_train_miss)).batch(FLAGS.batch_size).repeat()
-    tf_x_val_miss = tf.data.Dataset.from_tensor_slices((x_val_full, x_val_miss, m_val_miss)).batch(FLAGS.batch_size).repeat()
-    tf_x_val_miss = tf.compat.v1.data.make_one_shot_iterator(tf_x_val_miss)
+    tf_x_val_miss = tf.data.Dataset.from_tensor_slices((x_val_full, x_val_miss, m_val_miss)).batch(FLAGS.batch_size).repeat().make_one_shot_iterator()
+    # tf_x_val_miss = tf.compat.v1.data.make_one_shot_iterator(tf_x_val_miss)
 
     # Build Conv2D preprocessor for image data
     print("Using CNN preprocessor")
@@ -373,6 +375,7 @@ def main(argv):
     # impute gt observed values
     x_val_imputed[m_val_miss == 0] = x_val_miss[m_val_miss == 0]
     np.save(os.path.join(outdir, "imputed"), x_val_imputed)
+    auroc, auprc = 0, 0
 
     if not FLAGS.testing and FLAGS.tr_src == "hmnist":
         # AUROC evaluation using Logistic Regression
@@ -390,7 +393,6 @@ def main(argv):
         print("AUROC: {:.4f}".format(auroc))
         print("AUPRC: {:.4f}".format(auprc))
 
-        auroc, auprc = 0, 0
 
 
     # Visualize reconstructions
