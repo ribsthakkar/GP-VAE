@@ -109,4 +109,4 @@ data/physionet/
 data/sprites/
 
 # Model Runs
-models/*_debug/
+models/

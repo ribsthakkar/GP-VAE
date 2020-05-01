@@ -38,3 +38,18 @@ We provide a set of hyperparameters used in our final runs. Some flags have comm
   * Physionet: `python train.py --model_type gp-vae --data_type physionet --exp_name reproduce_physionet --seed $RANDOM --testing --banded_covar
     --latent_dim 35 --encoder_sizes=128,128 --decoder_sizes=256,256 --window_size 24 --sigma 1.005 --length_scale 7 --beta 0.2 --num_epochs 40`
   
+## Run New Experiments
+New Experiments use the rescaled HMNIST and Sprites data only. Goal is to optimize for 
+general image/video reconstruction.
+
+The following are commands to run our experiments. Exchange the model type argument to compare cgp-vae and gp-vae:
+  * Train Sprites;Test HMNIST: `python newexp.py --model_type gp-vae --tr_src sprites --val_src hmnist --exp_name sprites_to_hmnist --seed $RANDOM --testing --banded_covar
+    --latent_dim 256 --encoder_sizes=32,256,256 --decoder_sizes=256,256,256 --window_size 3 --sigma 1 --length_scale 2 --beta 0.2 --num_epochs 20`
+  * Train HMNIST;Test Sprites: `python newexp.py --model_type gp-vae --tr_src hmnist --val_src hmnist --exp_name hmnist_to_sprites --seed $RANDOM --testing --banded_covar
+    --latent_dim 256 --encoder_sizes=32,256,256 --decoder_sizes=256,256,256 --window_size 3 --sigma 1 --length_scale 2 --beta 0.2 --num_epochs 20`
+  * Train Mixed;Test Mixed: `python newexp.py --model_type gp-vae --tr_src both --val_src both --exp_name mixed --seed $RANDOM --testing --banded_covar
+    --latent_dim 256 --encoder_sizes=32,256,256 --decoder_sizes=256,256,256 --window_size 3 --sigma 1 --length_scale 2 --beta 0.2 --num_epochs 20`    
+
+Remove the `--testing` flag if you want to simply use a validation split for the training data.
+
+If you do remove the `--testing` flag, you must ensure that `--val_src` and `--tr_src` are the same.

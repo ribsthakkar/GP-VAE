@@ -31,17 +31,7 @@ from lib.models import *
 
 FLAGS = flags.FLAGS
 
-# HMNIST config
-# flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
-# flags.DEFINE_list('encoder_sizes', [256, 256], 'Layer sizes of the encoder')
-# flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
-# flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('beta', 0.8, 'Factor to weigh the KL term (similar to beta-VAE)')
-# flags.DEFINE_integer('num_epochs', 10, 'Number of training epochs')
 
-# SPRITES config GP-VAE
 flags.DEFINE_integer('latent_dim', 256, 'Dimensionality of the latent space')
 flags.DEFINE_list('encoder_sizes', [32, 256, 256], 'Layer sizes of the encoder')
 flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder')
@@ -49,41 +39,30 @@ flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignor
 flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('beta', 0.2, 'Factor to weigh the KL term (similar to beta-VAE)')
-flags.DEFINE_integer('num_epochs', 20, 'Number of training epochs')
+flags.DEFINE_integer('num_epochs', 6, 'Number of training epochs')
 
-# Physionet config
-# flags.DEFINE_integer('latent_dim', 35, 'Dimensionality of the latent space')
-# flags.DEFINE_list('encoder_sizes', [128, 128], 'Layer sizes of the encoder')
-# flags.DEFINE_list('decoder_sizes', [256, 256], 'Layer sizes of the decoder')
-# flags.DEFINE_integer('window_size', 24, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('sigma', 1.005, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('length_scale', 7.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-# flags.DEFINE_float('beta', 0.2, 'Factor to weigh the KL term (similar to beta-VAE)')
-# flags.DEFINE_integer('num_epochs', 40, 'Number of training epochs')
 
-# Flags with common default values for all three datasets
 flags.DEFINE_float('learning_rate', 1e-3, 'Learning rate for training')
 flags.DEFINE_float('gradient_clip', 1e4, 'Maximum global gradient norm for the gradient clipping during training')
 flags.DEFINE_integer('num_steps', 0, 'Number of training steps: If non-zero it overwrites num_epochs')
 flags.DEFINE_integer('print_interval', 0, 'Interval for printing the loss and saving the model during training')
 flags.DEFINE_string('exp_name', "debug", 'Name of the experiment')
 flags.DEFINE_string('basedir', "models", 'Directory where the models should be stored')
-flags.DEFINE_string('data_dir', "", 'Directory from where the data should be read in')
-flags.DEFINE_enum('data_type', 'hmnist', ['hmnist', 'physionet', 'sprites'], 'Type of data to be trained on')
+flags.DEFINE_enum('tr_src', 'sprites', ['hmnist', 'sprites', 'both'], 'Source of data to be trained on')
+flags.DEFINE_enum('val_src', 'sprites', ['hmnist', 'sprites', 'both'], 'Source of data to be tested/validated on')
+flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_integer('seed', 1337, 'Seed for the random number generator')
 flags.DEFINE_enum('model_type', 'cgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae'], 'Type of model to be trained')
 flags.DEFINE_integer('cnn_kernel_size', 3, 'Kernel size for the CNN preprocessor')
 flags.DEFINE_list('cnn_sizes', [256], 'Number of filters for the layers of the CNN preprocessor')
-flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_boolean('debug', False, 'debug mode')
 flags.DEFINE_boolean('banded_covar', False, 'Use a banded covariance matrix instead of a diagonal one for the output of the inference network: Ignored if model_type is not gp-vae')
 flags.DEFINE_integer('batch_size', 64, 'Batch size for training')
 flags.DEFINE_float('corruption_rate', 0.6, 'Percentage of Corrupted ', 0.0, 1.0)
 flags.DEFINE_bool('conv_corruption', True, 'Apply Convolution to targeted m_mask distribution to reduce latent dimension size in CGP-VAE. '
-                                           'If False, then'
-                                           ' latent dimension size must match corruption_rate*data_dimensions*2')
+                                           'If False, then latent dimension size must match corruption_rate*data_dimensions')
 flags.DEFINE_integer('conv_cor_size', 3, 'Size of convolution filter for conv_corruption')
-flags.DEFINE_integer('conv_cor_stride', 3, 'Strid of convolution filter for conv_corruption')
+flags.DEFINE_integer('conv_cor_stride', 3, 'Stride of convolution filter for conv_corruption')
 
 flags.DEFINE_integer('M', 1, 'Number of samples for ELBO estimation')
 flags.DEFINE_integer('K', 1, 'Number of importance sampling weights')
@@ -120,76 +99,90 @@ def main(argv):
     # Define data specific parameters #
     ###################################
     img_shape = None
-    if FLAGS.data_type == "hmnist":
-        FLAGS.data_dir = "data/hmnist/hmnist_mnar.npz"
-        data_dim = 784
-        time_length = 10
-        num_classes = 10
-        decoder = BernoulliDecoder
-        img_shape = (28, 28, 1)
-        val_split = 50000
-    elif FLAGS.data_type == "physionet":
-        if FLAGS.data_dir == "":
-            FLAGS.data_dir = "data/physionet/physionet.npz"
-        data_dim = 35
-        time_length = 48
-        num_classes = 2
-
-        decoder = GaussianDecoder
-    elif FLAGS.data_type == "sprites":
-        if FLAGS.data_dir == "":
-            FLAGS.data_dir = "data/sprites/sprites.npz"
-        data_dim = 12288
-        time_length = 8
-        decoder = GaussianDecoder
-        img_shape = (64, 64, 3)
-        val_split = 8000
-    else:
-        raise ValueError("Data type must be one of ['hmnist', 'physionet', 'sprites']")
+    hmnistdir = "data/hmnist/hmnist_rescale.npz"
+    spdir = "data/sprites/sprites.npz"
+    data_dim = 12288
+    time_length = 8
+    decoder = GaussianDecoder
+    img_shape = (64, 64, 3)
+    val_split = 8000
 
 
     #############
     # Load data #
     #############
 
-    data = np.load(FLAGS.data_dir)
-    x_train_full = data['x_train_full']
-    x_train_miss = data['x_train_miss']
-    m_train_miss = data['m_train_miss']
-    if FLAGS.data_type in ['hmnist', 'physionet']:
-        y_train = data['y_train']
 
-    if FLAGS.testing:
-        if FLAGS.data_type in ['hmnist', 'sprites']:
-            x_val_full = data['x_test_full']
-            x_val_miss = data['x_test_miss']
-            m_val_miss = data['m_test_miss']
-        if FLAGS.data_type == 'hmnist':
-            y_val = data['y_test']
-        elif FLAGS.data_type == 'physionet':
-            x_val_full = data['x_train_full']
-            x_val_miss = data['x_train_miss']
-            m_val_miss = data['m_train_miss']
-            y_val = data['y_train']
-            m_val_artificial = data["m_train_artificial"]
-    elif FLAGS.data_type in ['hmnist', 'sprites']:
-        x_val_full = x_train_full[val_split:]
-        x_val_miss = x_train_miss[val_split:]
-        m_val_miss = m_train_miss[val_split:]
-        if FLAGS.data_type == 'hmnist':
-            y_val = y_train[val_split:]
-            y_train = y_train[:val_split]
-        x_train_full = x_train_full[:val_split]
-        x_train_miss = x_train_miss[:val_split]
-        m_train_miss = m_train_miss[:val_split]
-    elif FLAGS.data_type == 'physionet':
-        x_val_full = data["x_val_full"]  # full for artificial missings
-        x_val_miss = data["x_val_miss"]
-        m_val_miss = data["m_val_miss"]
-        m_val_artificial = data["m_val_artificial"]
-        y_val = data["y_val"]
+    if not FLAGS.testing and FLAGS.tr_src == FLAGS.val_src:
+        if FLAGS.tr_src == 'hmnist':
+            h_data = np.load(hmnistdir)
+            x_train_full = h_data['x_train_full'][:val_split]
+            x_train_miss = h_data['x_train_miss'][:val_split]
+            m_train_miss = h_data['m_train_miss'][:val_split]
+            x_val_full = h_data['x_train_full'][val_split:]
+            x_val_miss = h_data['x_train_miss'][val_split:]
+            m_val_miss = h_data['m_train_miss'][val_split:]
+            y_val = h_data['y_train']
+            num_classes = 10
+        elif FLAGS.tr_src == 'sprites':
+            s_data = np.load(spdir)
+            x_train_full = s_data['x_train_full'][:val_split]
+            x_train_miss = s_data['x_train_miss'][:val_split]
+            m_train_miss = s_data['m_train_miss'][:val_split]
+            x_val_full = s_data['x_train_full'][val_split:]
+            x_val_miss = s_data['x_train_miss'][val_split:]
+            m_val_miss = s_data['m_train_miss'][val_split:]
+        elif FLAGS.tr_src == 'both':
+            h_data = np.load(hmnistdir)
+            s_data = np.load(spdir)
+            x_train_full = np.concatenate((h_data['x_train_full'][:val_split], s_data['x_train_full'][:val_split]))
+            x_train_miss = np.concatenate((h_data['x_train_miss'][:val_split], s_data['x_train_miss'][:val_split]))
+            m_train_miss = np.concatenate((h_data['m_train_miss'][:val_split], s_data['m_train_miss'][:val_split]))
+            x_val_full = np.concatenate((h_data['x_train_full'][val_split:], s_data['x_train_full'][val_split:]))
+            x_val_miss = np.concatenate((h_data['x_train_miss'][val_split:], s_data['x_train_miss'][val_split:]))
+            m_val_miss = np.concatenate((h_data['m_train_miss'][val_split:], s_data['m_train_miss'][val_split:]))
+        else:
+            raise ValueError("Train source must be one of ['hmnist', 'sprites', 'both']")
+    elif FLAGS.testing:
+        if FLAGS.tr_src == 'hmnist':
+            h_data = np.load(hmnistdir)
+            x_train_full = h_data['x_train_full']
+            x_train_miss = h_data['x_train_miss']
+            m_train_miss = h_data['m_train_miss']
+        elif FLAGS.tr_src == 'sprites':
+            s_data = np.load(spdir)
+            x_train_full = s_data['x_train_full']
+            x_train_miss = s_data['x_train_miss']
+            m_train_miss = s_data['m_train_miss']
+        elif FLAGS.tr_src == 'both':
+            h_data = np.load(hmnistdir)
+            s_data = np.load(spdir)
+            x_train_full = np.concatenate((h_data['x_train_full'], s_data['x_train_full']))
+            x_train_miss = np.concatenate((h_data['x_train_miss'], s_data['x_train_miss']))
+            m_train_miss = np.concatenate((h_data['m_train_miss'], s_data['m_train_miss']))
+        else:
+            raise ValueError("Train source must be one of ['hmnist', 'sprites', 'both']")
+
+        if FLAGS.val_src == 'hmnist':
+            h_data = np.load(hmnistdir)
+            x_val_full = h_data['x_test_full']
+            x_val_miss = h_data['x_test_miss']
+            m_val_miss = h_data['m_test_miss']
+        elif FLAGS.val_src == 'sprites':
+            s_data = np.load(spdir)
+            x_val_full = s_data['x_test_full']
+            x_val_miss = s_data['x_test_miss']
+            m_val_miss = s_data['m_test_miss']
+        elif FLAGS.val_src == 'both':
+            h_data = np.load(hmnistdir)
+            s_data = np.load(spdir)
+            x_val_full = np.concatenate((h_data['x_train_full'], s_data['x_train_full']))
+            x_val_miss = np.concatenate((h_data['x_train_miss'], s_data['x_train_miss']))
+            m_val_miss = np.concatenate((h_data['m_train_miss'], s_data['m_train_miss']))
+        else:
+            raise ValueError("Validation source must be one of ['hmnist', 'sprites', 'both']")
     else:
-        raise ValueError("Data type must be one of ['hmnist', 'physionet', 'sprites']")
+        raise ValueError("If not testing training and validation source must be the same")
 
     tf_x_train_miss = tf.data.Dataset.from_tensor_slices((x_train_full, x_train_miss, m_train_miss))\
                                      .shuffle(len(x_train_miss)).batch(FLAGS.batch_size).repeat()
@@ -197,13 +190,8 @@ def main(argv):
     tf_x_val_miss = tf.compat.v1.data.make_one_shot_iterator(tf_x_val_miss)
 
     # Build Conv2D preprocessor for image data
-    if FLAGS.data_type in ['hmnist', 'sprites']:
-        print("Using CNN preprocessor")
-        image_preprocessor = ImagePreprocessor(img_shape, FLAGS.cnn_sizes, FLAGS.cnn_kernel_size)
-    elif FLAGS.data_type == 'physionet':
-        image_preprocessor = None
-    else:
-        raise ValueError("Data type must be one of ['hmnist', 'physionet', 'sprites']")
+    print("Using CNN preprocessor")
+    image_preprocessor = ImagePreprocessor(img_shape, FLAGS.cnn_sizes, FLAGS.cnn_kernel_size)
 
 
     ###############
@@ -230,7 +218,7 @@ def main(argv):
                        kernel=FLAGS.kernel, sigma=FLAGS.sigma,
                        length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
                        image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
-                       beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type)
+                       beta=FLAGS.beta, M=FLAGS.M, K=FLAGS.K, data_type=None)
     elif FLAGS.model_type == "cgp-vae":
         encoder = BandedJointEncoder if FLAGS.banded_covar else JointEncoder
         model = CGP_VAE(latent_dim= FLAGS.latent_dim, data_dim=data_dim, time_length=time_length,
@@ -239,7 +227,7 @@ def main(argv):
                            kernel=FLAGS.kernel, sigma=FLAGS.sigma,
                            length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
                            image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
-                           beta=0.2, M=FLAGS.M, K=FLAGS.K, data_type=FLAGS.data_type,
+                           beta=0.2, M=FLAGS.M, K=FLAGS.K, data_type=None,
                             corruption_factor=FLAGS.corruption_rate, conv_corr=FLAGS.conv_corruption,
                             conv_size=FLAGS.conv_cor_size, conv_stride=FLAGS.conv_cor_stride, img_shape=img_shape)
     else:
@@ -288,6 +276,8 @@ def main(argv):
     losses_val = []
 
     t0 = time.time()
+    img_index = np.random.randint(0, len(x_val_full))
+
     with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
         for i, (x_c_seq, x_seq, m_seq) in enumerate(tf_x_train_miss.take(num_steps)):
             try:
@@ -324,58 +314,26 @@ def main(argv):
                     tf.contrib.summary.scalar("kl_val", val_kl)
                     tf.contrib.summary.scalar("nll_val", val_nll)
 
-                    if FLAGS.data_type in ["hmnist", "sprites"]:
-                        # Draw reconstructed images
-                        x_hat = model.decode(model.encode(x_seq).sample(), c_i=x_seq).mean()
-                        tf.contrib.summary.image("input_train", tf.reshape(x_seq, [-1]+list(img_shape)))
-                        tf.contrib.summary.image("reconstruction_train", tf.reshape(x_hat, [-1]+list(img_shape)))
-                        img_index = 0
-                        if FLAGS.data_type == "hmnist":
-                            im_shape = (28, 28)
-                            cmap = "gray"
-                        elif FLAGS.data_type == "sprites":
-                            im_shape = (64, 64, 3)
-                            cmap = None
+                    # Draw reconstructed images
+                    x_hat = model.decode(model.encode(x_seq).sample(), c_i=x_seq).mean()
+                    tf.contrib.summary.image("input_train", tf.reshape(x_seq, [-1]+list(img_shape)))
+                    tf.contrib.summary.image("reconstruction_train", tf.reshape(x_hat, [-1]+list(img_shape)))
+                    # img_index = 0
+                    im_shape = (64, 64, 3)
+                    cmap = None
+                    fig, axes = plt.subplots(nrows=3, ncols=x_val_miss.shape[1],
+                                             figsize=(2 * x_val_miss.shape[1], 6))
 
-                        fig, axes = plt.subplots(nrows=3, ncols=x_val_miss.shape[1],
-                                                 figsize=(2 * x_val_miss.shape[1], 6))
+                    x_hat = model.decode(model.encode(x_val_miss[img_index: img_index + 1]).mean(),
+                                         c_i=x_val_miss[img_index: img_index + 1]).mean().numpy()
+                    seqs = [x_val_miss[img_index:img_index + 1], x_hat, x_val_full[img_index:img_index + 1]]
 
-                        x_hat = model.decode(model.encode(x_val_miss[img_index: img_index + 1]).mean(),
-                                             c_i=x_val_miss[img_index: img_index + 1]).mean().numpy()
-                        seqs = [x_val_miss[img_index:img_index + 1], x_hat, x_val_full[img_index:img_index + 1]]
+                    for axs, seq in zip(axes, seqs):
+                        for ax, img in zip(axs, seq[0]):
+                            ax.imshow(img.reshape(im_shape), cmap=cmap)
+                            ax.axis('off')
 
-                        for axs, seq in zip(axes, seqs):
-                            for ax, img in zip(axs, seq[0]):
-                                ax.imshow(img.reshape(im_shape), cmap=cmap)
-                                ax.axis('off')
-
-                        fig.savefig(os.path.join(outdir, "step_" +  str(i) + "_" + FLAGS.data_type + "_reconstruction.pdf"))
-                    elif FLAGS.data_type == 'physionet':
-                        # Eval MSE and AUROC on entire val set
-                        x_val_miss_batches = np.array_split(x_val_miss, FLAGS.batch_size, axis=0)
-                        x_val_full_batches = np.array_split(x_val_full, FLAGS.batch_size, axis=0)
-                        m_val_artificial_batches = np.array_split(m_val_artificial, FLAGS.batch_size, axis=0)
-                        get_val_batches = lambda: zip(x_val_miss_batches, x_val_full_batches, m_val_artificial_batches)
-
-                        n_missings = m_val_artificial.sum()
-                        mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m).numpy()
-                                           for x, y, m in get_val_batches()]) / n_missings
-
-                        x_val_imputed = np.vstack([model.decode(model.encode(x_batch).mean(),c_i=x_batch).mean().numpy()
-                                                   for x_batch in x_val_miss_batches])
-                        x_val_imputed[m_val_miss == 0] = x_val_miss[m_val_miss == 0]  # impute gt observed values
-
-                        x_val_imputed = x_val_imputed.reshape([-1, time_length * data_dim])
-                        val_split = len(x_val_imputed) // 2
-                        cls_model = LogisticRegression(solver='liblinear', tol=1e-10, max_iter=10000)
-                        cls_model.fit(x_val_imputed[:val_split], y_val[:val_split])
-                        probs = cls_model.predict_proba(x_val_imputed[val_split:])[:, 1]
-                        auroc = roc_auc_score(y_val[val_split:], probs)
-                        print("MSE miss: {:.4f} | AUROC: {:.4f}".format(mse_miss, auroc))
-
-                        # Update learning rate (used only for physionet with decay=0.5)
-                        if i > 0 and i % (10*FLAGS.print_interval) == 0:
-                            optimizer._lr = max(0.5 * optimizer._lr, 0.1 * FLAGS.learning_rate)
+                        fig.savefig(os.path.join(outdir, "step_" +  str(i) + "_" + FLAGS.exp_name + "_reconstruction.pdf"))
                     t0 = time.time()
             except KeyboardInterrupt:
                 saver.save(checkpoint_prefix)
@@ -394,17 +352,14 @@ def main(argv):
     # Split data on batches
     x_val_miss_batches = np.array_split(x_val_miss, FLAGS.batch_size, axis=0)
     x_val_full_batches = np.array_split(x_val_full, FLAGS.batch_size, axis=0)
-    if FLAGS.data_type == 'physionet':
-        m_val_batches = np.array_split(m_val_artificial, FLAGS.batch_size, axis=0)
-    else:
-        m_val_batches = np.array_split(m_val_miss, FLAGS.batch_size, axis=0)
+    m_val_batches = np.array_split(m_val_miss, FLAGS.batch_size, axis=0)
     get_val_batches = lambda: zip(x_val_miss_batches, x_val_full_batches, m_val_batches)
 
     # Compute NLL and MSE on missing values
-    n_missings = m_val_artificial.sum() if FLAGS.data_type == 'physionet' else m_val_miss.sum()
+    n_missings = m_val_miss.sum()
     nll_miss = np.sum([model.compute_nll(x, y=y, m_mask=m).numpy()
                        for x, y, m in get_val_batches()]) / n_missings
-    mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m, binary=FLAGS.data_type=="hmnist").numpy()
+    mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m).numpy()
                        for x, y, m in get_val_batches()]) / n_missings
     print("NLL miss: {:.4f}".format(nll_miss))
     print("MSE miss: {:.4f}".format(mse_miss))
@@ -419,7 +374,7 @@ def main(argv):
     x_val_imputed[m_val_miss == 0] = x_val_miss[m_val_miss == 0]
     np.save(os.path.join(outdir, "imputed"), x_val_imputed)
 
-    if FLAGS.data_type == "hmnist":
+    if not FLAGS.testing and FLAGS.tr_src == "hmnist":
         # AUROC evaluation using Logistic Regression
         x_val_imputed = np.round(x_val_imputed)
         x_val_imputed = x_val_imputed.reshape([-1, time_length * data_dim])
@@ -435,56 +390,29 @@ def main(argv):
         print("AUROC: {:.4f}".format(auroc))
         print("AUPRC: {:.4f}".format(auprc))
 
-    elif FLAGS.data_type == "sprites":
         auroc, auprc = 0, 0
 
-    elif FLAGS.data_type == "physionet":
-        # Uncomment to preserve some z_samples and their reconstructions
-        # for i in range(5):
-        #     z_sample = [model.encode(x_batch).sample().numpy() for x_batch in x_val_miss_batches]
-        #     np.save(os.path.join(outdir, "z_sample_{}".format(i)), np.vstack(z_sample))
-        #     x_val_imputed_sample = np.vstack([model.decode(z_batch).mean().numpy() for z_batch in z_sample])
-        #     np.save(os.path.join(outdir, "imputed_sample_{}_no_gt".format(i)), x_val_imputed_sample)
-        #     x_val_imputed_sample[m_val_miss == 0] = x_val_miss[m_val_miss == 0]
-        #     np.save(os.path.join(outdir, "imputed_sample_{}".format(i)), x_val_imputed_sample)
-
-        # AUROC evaluation using Logistic Regression
-        x_val_imputed = x_val_imputed.reshape([-1, time_length * data_dim])
-        val_split = len(x_val_imputed) // 2
-        cls_model = LogisticRegression(solver='liblinear', tol=1e-10, max_iter=10000)
-        cls_model.fit(x_val_imputed[:val_split], y_val[:val_split])
-        probs = cls_model.predict_proba(x_val_imputed[val_split:])[:, 1]
-        auprc = average_precision_score(y_val[val_split:], probs)
-        auroc = roc_auc_score(y_val[val_split:], probs)
-
-        print("AUROC: {:.4f}".format(auroc))
-        print("AUPRC: {:.4f}".format(auprc))
 
     # Visualize reconstructions
-    if FLAGS.data_type in ["hmnist", "sprites"]:
-        img_index = 0
-        if FLAGS.data_type == "hmnist":
-            img_shape = (28, 28)
-            cmap = "gray"
-        elif FLAGS.data_type == "sprites":
-            img_shape = (64, 64, 3)
-            cmap = None
+    # img_index = 0
+    img_shape = (64, 64, 3)
+    cmap = None
 
-        fig, axes = plt.subplots(nrows=3, ncols=x_val_miss.shape[1], figsize=(2*x_val_miss.shape[1], 6))
+    fig, axes = plt.subplots(nrows=3, ncols=x_val_miss.shape[1], figsize=(2*x_val_miss.shape[1], 6))
 
-        x_hat = model.decode(model.encode(x_val_miss[img_index: img_index+1]).mean(), c_i=x_val_miss[img_index: img_index+1]).mean().numpy()
-        seqs = [x_val_miss[img_index:img_index+1], x_hat, x_val_full[img_index:img_index+1]]
+    x_hat = model.decode(model.encode(x_val_miss[img_index: img_index+1]).mean(), c_i=x_val_miss[img_index: img_index+1]).mean().numpy()
+    seqs = [x_val_miss[img_index:img_index+1], x_hat, x_val_full[img_index:img_index+1]]
 
-        for axs, seq in zip(axes, seqs):
-            for ax, img in zip(axs, seq[0]):
-                ax.imshow(img.reshape(img_shape), cmap=cmap)
-                ax.axis('off')
+    for axs, seq in zip(axes, seqs):
+        for ax, img in zip(axs, seq[0]):
+            ax.imshow(img.reshape(img_shape), cmap=cmap)
+            ax.axis('off')
 
-        suptitle = FLAGS.model_type + f" reconstruction, NLL missing = {mse_miss}"
-        fig.suptitle(suptitle, size=18)
-        fig.savefig(os.path.join(outdir, FLAGS.data_type + "_reconstruction.pdf"))
+    suptitle = FLAGS.model_type + f" reconstruction, NLL missing = {nll_miss}, MSE missing = {mse_miss}"
+    fig.suptitle(suptitle, size=18)
+    fig.savefig(os.path.join(outdir, FLAGS.tr_src + "_to_" + FLAGS.val_src + "_final_reconstruction.pdf"))
 
-    results_all = [FLAGS.seed, FLAGS.model_type, FLAGS.data_type, FLAGS.kernel, FLAGS.beta, FLAGS.latent_dim,
+    results_all = [FLAGS.seed, FLAGS.model_type, FLAGS.tr_src, FLAGS.val_src, FLAGS.kernel, FLAGS.beta, FLAGS.latent_dim,
                    FLAGS.num_epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.window_size,
                    FLAGS.kernel_scales, FLAGS.sigma, FLAGS.length_scale,
                    len(FLAGS.encoder_sizes), FLAGS.encoder_sizes[0] if len(FLAGS.encoder_sizes) > 0 else 0,
@@ -493,7 +421,7 @@ def main(argv):
                    nll_miss, mse_miss, losses_train[-1], losses_val[-1], auprc, auroc, FLAGS.testing, FLAGS.data_dir]
 
     with open(os.path.join(outdir, "results.tsv"), "w") as outfile:
-        outfile.write("seed\tmodel\tdata\tkernel\tbeta\tz_size\tnum_epochs"
+        outfile.write("seed\tmodel\ttr_data\tval_data\tkernel\tbeta\tz_size\tnum_epochs"
                       "\tbatch_size\tlearning_rate\twindow_size\tkernel_scales\t"
                       "sigma\tlength_scale\tencoder_depth\tencoder_width\t"
                       "decoder_depth\tdecoder_width\tcnn_kernel_size\t"
