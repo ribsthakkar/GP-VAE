@@ -124,7 +124,7 @@ def get_y_test():
 t0 = time.time()
 print('Time:', 0)
 np.savez_compressed(
-    os.path.join('hmnist', 'hmnist_rescale.npz'),
+    os.path.join('hmnist', 'hmnist_rescale_tight.npz'),
     x_train_full=get_x_train_full(),
     x_train_miss=get_x_train_miss(),
     m_train_miss=get_m_train_miss(),
