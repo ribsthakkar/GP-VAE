@@ -1,12 +1,11 @@
 import os
+import time
 
-import matplotlib.pyplot as plt
 import numpy as np
+
 
 HMNIST_PATH = os.path.join('hmnist', 'hmnist_mnar.npz')
 ZEROS = np.zeros(shape=(64, 64, 3))
-#N1 = 60000
-#N2 = 10000
 N1 = 9000 # reduce 60000 to 9000
 N2 = 2664 # reduce 10000 to 2664
 F = 8
@@ -17,7 +16,7 @@ def _retrieve_by_key(path, key):
     return output
 
 def _get_train_indices():
-    y_train = _retrieve_by_key(HMNIST_PATH, 'y_train')
+    y = _retrieve_by_key(HMNIST_PATH, 'y_train')
     output = [] 
     for i in range(10): 
         i_indices, = np.where(y == i) 
@@ -25,11 +24,12 @@ def _get_train_indices():
     return output
 
 def _get_test_indices():
-    y_test = _retrieve_by_key(HMNIST_PATH, 'y_test')
+    y = _retrieve_by_key(HMNIST_PATH, 'y_test')
     output = []
     for i in range(10):
         i_indices, = np.where(y == i)
         output.extend(np.random.choice(i_indices, (N2 + i) // 10, replace=False))
+    return output
 
 def get_x_train_full():
     x_train_full = _retrieve_by_key(HMNIST_PATH, 'x_train_full')
@@ -115,14 +115,13 @@ def get_m_test_miss():
 
 def get_y_test():
     y_test = _retrieve_by_key(HMNIST_PATH, 'y_test')
-    return y_test.astype[:_get_test_indices()]('uint8')
+    return y_test.astype[_get_test_indices()]('uint8')
 
 
-import time
 t0 = time.time()
 print('Time:', 0)
-np.savez(
-    'hmnist_rescale.npz',
+np.savez_compressed(
+    os.path.join('hmnist', 'hmnist_rescale.npz'),
     x_train_full=get_x_train_full(),
     x_train_miss=get_x_train_miss(),
     m_train_miss=get_m_train_miss(),
