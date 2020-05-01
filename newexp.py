@@ -157,8 +157,6 @@ def main(argv):
         elif FLAGS.tr_src == 'both':
             h_data = np.load(hmnistdir)
             s_data = np.load(spdir)
-            print(h_data.shape, s_data.shape)
-            exit(1)
             x_train_full = np.concatenate((h_data['x_train_full'], s_data['x_train_full']))
             x_train_miss = np.concatenate((h_data['x_train_miss'], s_data['x_train_miss']))
             m_train_miss = np.concatenate((h_data['m_train_miss'], s_data['m_train_miss']))
