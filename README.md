@@ -45,7 +45,7 @@ general image/video reconstruction.
 The following are commands to run our experiments. Exchange the model type argument to compare cgp-vae and gp-vae:
   * Train Sprites;Test HMNIST: `python newexp.py --model_type gp-vae --tr_src sprites --val_src hmnist --exp_name sprites_to_hmnist --seed $RANDOM --testing --banded_covar
     --latent_dim 256 --encoder_sizes=32,256,256 --decoder_sizes=256,256,256 --window_size 3 --sigma 1 --length_scale 2 --beta 0.2 --num_epochs 20`
-  * Train HMNIST;Test Sprites: `python newexp.py --model_type gp-vae --tr_src hmnist --val_src hmnist --exp_name hmnist_to_sprites --seed $RANDOM --testing --banded_covar
+  * Train HMNIST;Test Sprites: `python newexp.py --model_type gp-vae --tr_src hmnist --val_src sprites --exp_name hmnist_to_sprites --seed $RANDOM --testing --banded_covar
     --latent_dim 256 --encoder_sizes=32,256,256 --decoder_sizes=256,256,256 --window_size 3 --sigma 1 --length_scale 2 --beta 0.2 --num_epochs 20`
   * Train Mixed;Test Mixed: `python newexp.py --model_type gp-vae --tr_src both --val_src both --exp_name mixed --seed $RANDOM --testing --banded_covar
     --latent_dim 256 --encoder_sizes=32,256,256 --decoder_sizes=256,256,256 --window_size 3 --sigma 1 --length_scale 2 --beta 0.2 --num_epochs 20`    
