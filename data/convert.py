@@ -31,10 +31,13 @@ def _get_test_indices():
         output.extend(np.random.choice(i_indices, (N2 + i) // 10, replace=False))
     return output
 
+TRAIN_INDICES = _get_train_indices()
+TEST_INDICES = _get_test_indices()
+
 def get_x_train_full():
     x_train_full = _retrieve_by_key(HMNIST_PATH, 'x_train_full')
     new_x_train_full = np.zeros(shape=(N1, 8, 64 * 64 * 3))
-    for i, j in enumerate(_get_train_indices()):
+    for i, j in enumerate(TRAIN_INDICES):
         if (i + 1) % 100 == 0 or (i + 1) == N1:
             print(i + 1)
         for f in range(F):
@@ -47,7 +50,7 @@ def get_x_train_full():
 def get_x_train_miss():
     x_train_miss = _retrieve_by_key(HMNIST_PATH, 'x_train_miss')
     new_x_train_miss = np.zeros(shape=(N1, 8, 64 * 64 * 3))
-    for i, j in enumerate(_get_train_indices()):
+    for i, j in enumerate(TRAIN_INDICES):
         if (i + 1) % 100 == 0 or (i + 1) == N1:
             print(i + 1)
         for f in range(F):
@@ -60,7 +63,7 @@ def get_x_train_miss():
 def get_m_train_miss():
     m_train_miss = _retrieve_by_key(HMNIST_PATH, 'm_train_miss')
     new_m_train_miss = np.zeros(shape=(N1, 8, 64 * 64 * 3))
-    for i, j in enumerate(_get_train_indices()):
+    for i, j in enumerate(TRAIN_INDICES):
         if (i + 1) % 100 == 0 or (i + 1) == N1:
             print(i + 1)
         for f in range(F):
@@ -72,12 +75,12 @@ def get_m_train_miss():
 
 def get_y_train():
     y_train = _retrieve_by_key(HMNIST_PATH, 'y_train')
-    return y_train[_get_train_indices()].astype('uint8')
+    return y_train[TRAIN_INDICES].astype('uint8')
 
 def get_x_test_full():
     x_test_full = _retrieve_by_key(HMNIST_PATH, 'x_test_full')
     new_x_test_full = np.zeros(shape=(N2, 8, 64 * 64 * 3))
-    for i, j in enumerate(_get_test_indices()):
+    for i, j in enumerate(TEST_INDICES):
         if (i + 1) % 100 == 0 or (i + 1) == N2:
             print(i + 1)
         for f in range(F):
@@ -90,7 +93,7 @@ def get_x_test_full():
 def get_x_test_miss():
     x_test_miss = _retrieve_by_key(HMNIST_PATH, 'x_test_miss')
     new_x_test_miss = np.zeros(shape=(N2, 8, 64 * 64 * 3))
-    for i, j in enumerate(_get_test_indices()):
+    for i, j in enumerate(TEST_INDICES):
         if (i + 1) % 100 == 0 or (i + 1) == N2:
             print(i + 1)
         for f in range(F):
@@ -103,7 +106,7 @@ def get_x_test_miss():
 def get_m_test_miss():
     m_test_miss = _retrieve_by_key(HMNIST_PATH, 'm_test_miss')
     new_m_test_miss = np.zeros(shape=(N2, 8, 64 * 64 * 3))
-    for i, j in enumerate(_get_test_indices()):
+    for i, j in enumerate(TEST_INDICES):
         if (i + 1) % 100 == 0 or (i + 1) == N2:
             print(i + 1)
         for f in range(F):
@@ -115,7 +118,7 @@ def get_m_test_miss():
 
 def get_y_test():
     y_test = _retrieve_by_key(HMNIST_PATH, 'y_test')
-    return y_test[_get_test_indices()].astype('uint8')
+    return y_test[TEST_INDICES].astype('uint8')
 
 
 t0 = time.time()
