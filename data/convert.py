@@ -115,7 +115,7 @@ def get_m_test_miss():
 
 def get_y_test():
     y_test = _retrieve_by_key(HMNIST_PATH, 'y_test')
-    return y_test.astype[_get_test_indices()]('uint8')
+    return y_test[_get_test_indices()].astype('uint8')
 
 
 t0 = time.time()
