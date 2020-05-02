@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-sample = 8
+sample = 5000
 frame = 4
 total_frames = 8
 experiment_imputed = 'models/200501_19_17_16_mixed-gp/'
@@ -35,7 +35,9 @@ if validation_type == 'both':
     axes[1, 1].imshow(miss)
     imputed = list(map(lambda x: Image.fromarray((x*255).astype('uint8'), 'RGB'), imputed_data[sample, :].reshape(total_frames, *shape)))
     corrupted = list(map(lambda x: Image.fromarray((x*255).astype('uint8'), 'RGB'), x_val_miss[sample, :].reshape(total_frames, *shape)))
+    clean = list(map(lambda x: Image.fromarray((x*255).astype('uint8'), 'RGB'), x_val_full[sample, :].reshape(total_frames, *shape)))
     imputed[0].save(experiment_imputed+'/Imputed' + str(sample) +'.gif', save_all=True, append_images=imputed[1:], optimize=False, duration=100, loop=0)
     corrupted[0].save(experiment_imputed+'/Corrupted' + str(sample) + '.gif', save_all=True, append_images=corrupted[1:], optimize=False, duration=100, loop=0)
+    clean[0].save(experiment_imputed+'/Clean' + str(sample) + '.gif', save_all=True, append_images=clean[1:], optimize=False, duration=100, loop=0)
 plt.suptitle(f'Sample: {sample}\nFrame: {frame}')
 plt.show()
