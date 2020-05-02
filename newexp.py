@@ -157,8 +157,6 @@ def main(argv):
         elif FLAGS.tr_src == 'both':
             h_data = np.load(hmnistdir)
             s_data = np.load(spdir)
-            print(h_data.shape, s_data.shape)
-            exit(1)
             x_train_full = np.concatenate((h_data['x_train_full'], s_data['x_train_full']))
             x_train_miss = np.concatenate((h_data['x_train_miss'], s_data['x_train_miss']))
             m_train_miss = np.concatenate((h_data['m_train_miss'], s_data['m_train_miss']))
@@ -420,14 +418,14 @@ def main(argv):
                    len(FLAGS.encoder_sizes), FLAGS.encoder_sizes[0] if len(FLAGS.encoder_sizes) > 0 else 0,
                    len(FLAGS.decoder_sizes), FLAGS.decoder_sizes[0] if len(FLAGS.decoder_sizes) > 0 else 0,
                    FLAGS.cnn_kernel_size, FLAGS.cnn_sizes,
-                   nll_miss, mse_miss, losses_train[-1], losses_val[-1], auprc, auroc, FLAGS.testing, FLAGS.data_dir]
+                   nll_miss, mse_miss, losses_train[-1], losses_val[-1], auprc, auroc, FLAGS.testing]
 
     with open(os.path.join(outdir, "results.tsv"), "w") as outfile:
         outfile.write("seed\tmodel\ttr_data\tval_data\tkernel\tbeta\tz_size\tnum_epochs"
                       "\tbatch_size\tlearning_rate\twindow_size\tkernel_scales\t"
                       "sigma\tlength_scale\tencoder_depth\tencoder_width\t"
                       "decoder_depth\tdecoder_width\tcnn_kernel_size\t"
-                      "cnn_sizes\tNLL\tMSE\tlast_train_loss\tlast_val_loss\tAUPRC\tAUROC\ttesting\tdata_dir\n")
+                      "cnn_sizes\tNLL\tMSE\tlast_train_loss\tlast_val_loss\tAUPRC\tAUROC\ttesting\n")
         outfile.write("\t".join(map(str, results_all)))
 
     with open(os.path.join(outdir, "training_curve.tsv"), "w") as outfile:
