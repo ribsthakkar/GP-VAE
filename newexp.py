@@ -356,11 +356,11 @@ def main(argv):
     get_val_batches = lambda: zip(x_val_miss_batches, x_val_full_batches, m_val_batches)
 
     # Compute NLL and MSE on missing values
-    n_missings = m_val_miss.sum()
+    count = len(x_val_miss)
     nll_miss = np.sum([model.compute_nll(x, y=y, m_mask=m).numpy()
-                       for x, y, m in get_val_batches()]) / n_missings
+                       for x, y, m in get_val_batches()]) / count
     mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m).numpy()
-                       for x, y, m in get_val_batches()]) / n_missings
+                       for x, y, m in get_val_batches()]) / count
     print("NLL miss: {:.4f}".format(nll_miss))
     print("MSE miss: {:.4f}".format(mse_miss))
 

@@ -248,9 +248,9 @@ class VAE(tf.keras.Model):
         x_hat_dist = self.decode(z_sample, x)
         nll = -x_hat_dist.log_prob(y)  # shape=(BS, TL, D)
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
-        if m_mask is not None:
-            m_mask = tf.cast(m_mask, tf.bool)
-            nll = tf.where(m_mask, nll, tf.zeros_like(nll))  # !!! inverse mask, set zeros for observed
+        # if m_mask is not None:
+        #     m_mask = tf.cast(m_mask, tf.bool)
+        #     nll = tf.where(m_mask, nll, tf.zeros_like(nll))  # !!! inverse mask, set zeros for observed
         return tf.reduce_sum(nll)
 
     def compute_mse(self, x, y=None, m_mask=None, binary=False):
@@ -260,12 +260,12 @@ class VAE(tf.keras.Model):
 
         z_mean = self.encode(x).mean()
         x_hat_mean = self.decode(z_mean, x).mean()  # shape=(BS, TL, D)
-        if binary:
-            x_hat_mean = tf.round(x_hat_mean)
+        # if binary:
+        #     x_hat_mean = tf.round(x_hat_mean)
         mse = tf.math.squared_difference(x_hat_mean, y)
-        if m_mask is not None:
-            m_mask = tf.cast(m_mask, tf.bool)
-            mse = tf.where(m_mask, mse, tf.zeros_like(mse))  # !!! inverse mask, set zeros for observed
+        # if m_mask is not None:
+        #     m_mask = tf.cast(m_mask, tf.bool)
+        #     mse = tf.where(m_mask, mse, tf.zeros_like(mse))  # !!! inverse mask, set zeros for observed
         return tf.reduce_sum(mse)
 
     def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
