@@ -52,24 +52,31 @@ flags.DEFINE_enum('tr_src', 'both', ['hmnist', 'sprites', 'both'], 'Source of da
 flags.DEFINE_enum('val_src', 'both', ['hmnist', 'sprites', 'both'], 'Source of data to be tested/validated on')
 flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_integer('seed', 1337, 'Seed for the random number generator')
-flags.DEFINE_enum('model_type', 'cgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae'], 'Type of model to be trained')
+flags.DEFINE_enum('model_type', 'cgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae', 'hgp-vae'], 'Type of model to be trained')
 flags.DEFINE_integer('cnn_kernel_size', 3, 'Kernel size for the CNN preprocessor')
 flags.DEFINE_list('cnn_sizes', [256], 'Number of filters for the layers of the CNN preprocessor')
 flags.DEFINE_boolean('debug', False, 'debug mode')
-flags.DEFINE_boolean('banded_covar', False, 'Use a banded covariance matrix instead of a diagonal one for the output of the inference network: Ignored if model_type is not gp-vae')
 flags.DEFINE_integer('batch_size', 64, 'Batch size for training')
+
+#GP-VAE Specific
+flags.DEFINE_integer('M', 1, 'Number of samples for ELBO estimation')
+flags.DEFINE_integer('K', 1, 'Number of importance sampling weights')
+flags.DEFINE_boolean('banded_covar', False, 'Use a banded covariance matrix instead of a diagonal one for the output of the inference network: Ignored if model_type is not gp-vae')
+flags.DEFINE_enum('kernel', 'cauchy', ['rbf', 'diffusion', 'matern', 'cauchy'], 'Kernel to be used for the GP prior: Ignored if model_type is not (m)gp-vae')
+flags.DEFINE_integer('kernel_scales', 1, 'Number of different length scales sigma for the GP prior: Ignored if model_type is not gp-vae')
+
+
+#HGP/CGP-VAE Specific
 flags.DEFINE_float('corruption_rate', 0.6, 'Percentage of Corrupted ', 0.0, 1.0)
 flags.DEFINE_bool('conv_corruption', True, 'Apply Convolution to targeted m_mask distribution to reduce latent dimension size in CGP-VAE. '
                                            'If False, then latent dimension size must match corruption_rate*data_dimensions')
 flags.DEFINE_integer('conv_cor_size', 3, 'Size of convolution filter for conv_corruption')
 flags.DEFINE_integer('conv_cor_stride', 3, 'Stride of convolution filter for conv_corruption')
 
-flags.DEFINE_integer('M', 1, 'Number of samples for ELBO estimation')
-flags.DEFINE_integer('K', 1, 'Number of importance sampling weights')
-
-flags.DEFINE_enum('kernel', 'cauchy', ['rbf', 'diffusion', 'matern', 'cauchy'], 'Kernel to be used for the GP prior: Ignored if model_type is not (m)gp-vae')
-flags.DEFINE_integer('kernel_scales', 1, 'Number of different length scales sigma for the GP prior: Ignored if model_type is not gp-vae')
-
+#HGP-VAE Specific
+flags.DEFINE_integer('learned_latent_size', 128, 'Size of Learned Latent Dimension')
+flags.DEFINE_integer('targeted_latent_size', 128, 'Size of Targeted Latent Dimension')
+flags.DEFINE_bool('use_corr', False, 'Use the corrupted input in the decode phase')
 
 def main(argv):
     del argv  # unused
@@ -230,8 +237,20 @@ def main(argv):
                            beta=0.2, M=FLAGS.M, K=FLAGS.K, data_type=None,
                             corruption_factor=FLAGS.corruption_rate, conv_corr=FLAGS.conv_corruption,
                             conv_size=FLAGS.conv_cor_size, conv_stride=FLAGS.conv_cor_stride, img_shape=img_shape)
+    elif FLAGS.model_type == "hgp-vae":
+        encoder = BandedJointEncoder if FLAGS.banded_covar else JointEncoder
+        model = HGP_VAE(latent_dim= FLAGS.latent_dim, data_dim=data_dim, time_length=time_length,
+                           encoder_sizes=FLAGS.encoder_sizes, encoder=encoder,
+                           decoder_sizes=FLAGS.decoder_sizes, decoder=decoder,
+                           kernel=FLAGS.kernel, sigma=FLAGS.sigma,
+                           length_scale=FLAGS.length_scale, kernel_scales = FLAGS.kernel_scales,
+                           image_preprocessor=image_preprocessor, window_size=FLAGS.window_size,
+                           beta=0.2, M=FLAGS.M, K=FLAGS.K, data_type=None,
+                            corruption_factor=FLAGS.corruption_rate, conv_corr=FLAGS.conv_corruption,
+                            conv_size=FLAGS.conv_cor_size, conv_stride=FLAGS.conv_cor_stride, img_shape=img_shape,
+                        learned_latent_size=FLAGS.learned_latent_size, targeted_latent_size=FLAGS.target_latent_size, use_corr=FLAGS.use_corr)
     else:
-        raise ValueError("Model type must be one of ['vae', 'hi-vae', 'gp-vae','cgp-vae']")
+        raise ValueError("Model type must be one of ['vae', 'hi-vae', 'gp-vae','cgp-vae', 'hgp-vae']")
 
 
     ########################
