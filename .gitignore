@@ -110,3 +110,4 @@ data/sprites/
 
 # Model Runs
 models/
+.DS_Store

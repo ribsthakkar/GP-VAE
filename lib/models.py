@@ -248,9 +248,9 @@ class VAE(tf.keras.Model):
         x_hat_dist = self.decode(z_sample, x)
         nll = -x_hat_dist.log_prob(y)  # shape=(BS, TL, D)
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
-        if m_mask is not None:
-            m_mask = tf.cast(m_mask, tf.bool)
-            nll = tf.where(m_mask, nll, tf.zeros_like(nll))  # !!! inverse mask, set zeros for observed
+        # if m_mask is not None:
+        #     m_mask = tf.cast(m_mask, tf.bool)
+        #     nll = tf.where(m_mask, nll, tf.zeros_like(nll))  # !!! inverse mask, set zeros for observed
         return tf.reduce_sum(nll)
 
     def compute_mse(self, x, y=None, m_mask=None, binary=False):
@@ -260,12 +260,12 @@ class VAE(tf.keras.Model):
 
         z_mean = self.encode(x).mean()
         x_hat_mean = self.decode(z_mean, x).mean()  # shape=(BS, TL, D)
-        if binary:
-            x_hat_mean = tf.round(x_hat_mean)
+        # if binary:
+        #     x_hat_mean = tf.round(x_hat_mean)
         mse = tf.math.squared_difference(x_hat_mean, y)
-        if m_mask is not None:
-            m_mask = tf.cast(m_mask, tf.bool)
-            mse = tf.where(m_mask, mse, tf.zeros_like(mse))  # !!! inverse mask, set zeros for observed
+        # if m_mask is not None:
+        #     m_mask = tf.cast(m_mask, tf.bool)
+        #     mse = tf.where(m_mask, mse, tf.zeros_like(mse))  # !!! inverse mask, set zeros for observed
         return tf.reduce_sum(mse)
 
     def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
@@ -584,3 +584,113 @@ class CGP_VAE(GP_VAE):
 
     def kl_divergence(self, a, b):
         return tfd.kl_divergence(a, b)
+
+class HGP_VAE(CGP_VAE):
+    def __init__(self, *args,learned_latent_size =128, targeted_latent_size=128, use_corr=False,**kwargs):
+        super(HGP_VAE, self).__init__(*args, **kwargs)
+        self.lls = learned_latent_size
+        self.tlz = targeted_latent_size
+        self.use_corr = use_corr
+        assert self.lls > 0
+        assert self.tlz > 0
+        assert self.lls + self.tlz == self.latent_dim
+
+    def _compute_loss(self, x, m_mask=None, return_parts=False, clean_input=None):
+        assert len(x.shape) == 3, "Input should have shape: [batch_size, time_length, data_dim]"
+        x = tf.identity(x)  # in case x is not a Tensor already...
+        x = tf.tile(x, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
+        m_mask = tf.identity(m_mask)  # in case m_mask is not a Tensor already...
+        m_mask = tf.tile(m_mask, [self.M * self.K, 1, 1])  # shape=(M*K*BS, TL, D)
+        if self.conv_cor:
+            reshp_mask = tf.reshape(m_mask, shape=[m_mask.shape[0] * m_mask.shape[1]] + list(self.im_shp))
+            # print(reshp_mask.shape, reshp_mask)
+            convolved_mask = tf.reshape(tf.nn.avg_pool2d(reshp_mask, ksize=self.conv_size, strides=self.conv_stride, padding='SAME'),
+                                        shape=[m_mask.shape[0], m_mask.shape[1]] + [reduce(operator.mul,self.convolved_row.shape)])
+            # print(convolved_mask.shape)
+            _, avg_corruption = tf.math.top_k(convolved_mask, k=self.tlz, sorted=False)
+            # avg_corruption = tf.cast(avg_corruption, dtype=tf.float32)
+            corruption = (tf.gather (self.convolved_row, avg_corruption) * (self.im_shp[1] * self.im_shp[2]) +
+                  tf.gather(self.convolved_col, avg_corruption) * (self.im_shp[2]) + tf.gather(self.convolved_dep, avg_corruption)
+                          - self.data_dim//2) / self.data_dim
+        else:
+            _, corruption = (tf.math.top_k(m_mask, k=self.tlz, sorted=False) - self.data_dim//2) / self.data_dim
+            corruption = tf.cast(tf.identity(corruption), dtype=tf.float32)
+        m_mask = tf.cast(m_mask, tf.bool)
+
+        pz = self._get_prior(corruption=corruption)
+        qz_x = self.encode(x)
+        z = qz_x.sample()
+        px_z = self.decode(z, None)
+        nll = -px_z.log_prob(clean_input)  # shape=(M*K*BS, TL, D) # want to compare nll of reconstructing new image
+        nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
+        nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
+
+        # print(pz.mean(), z)
+        rl = tf.norm(px_z.mean() - clean_input, axis=(-2,-1))**2 # Euclidian reconstruction loss term
+        if self.K > 1:
+            kl = qz_x.log_prob(z) - pz.log_prob(z)  # shape=(M*K*BS, TL or d)
+            kl = tf.where(tf.is_finite(kl), kl, tf.zeros_like(kl))
+            kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
+
+            weights = -rl -nll - kl  # shape=(M*K*BS)
+            weights = tf.reshape(weights, [self.M, self.K, -1])  # shape=(M, K, BS)
+
+            elbo = reduce_logmeanexp(weights, axis=1)  # shape=(M, 1, BS)
+            elbo = -tf.reduce_mean(elbo)  # scalar
+        else:
+            # if K==1, compute KL analytically
+            kl = self.kl_divergence(qz_x, pz)  # shape=(M*K*BS, TL or d)
+            kl = tf.where(tf.math.is_finite(kl), kl, tf.zeros_like(kl))
+            kl = tf.reduce_sum(kl, 1)  # shape=(M*K*BS)
+
+            elbo = -rl - nll - self.beta * kl  # shape=(M*K*BS) K=1
+            elbo = -tf.reduce_mean(elbo)  # scalar
+
+        if return_parts:
+            nll = tf.reduce_mean(nll)  # scalar
+            kl = tf.reduce_mean(kl)  # scalar
+            rl = tf.reduce_mean(rl)
+            return elbo, rl, nll, kl
+        else:
+            return elbo
+
+    def _get_prior(self, corruption=None):
+        # Compute kernel matrices for each latent dimension
+        kernel_matrices = []
+        for i in range(self.kernel_scales):
+            if self.kernel == "rbf":
+                kernel_matrices.append(rbf_kernel(self.time_length, self.length_scale / 2**i))
+            elif self.kernel == "diffusion":
+                kernel_matrices.append(diffusion_kernel(self.time_length, self.length_scale / 2**i))
+            elif self.kernel == "matern":
+                kernel_matrices.append(matern_kernel(self.time_length, self.length_scale / 2**i))
+            elif self.kernel == "cauchy":
+                kernel_matrices.append(cauchy_kernel(self.time_length, self.sigma, self.length_scale / 2**i))
+
+        # Combine kernel matrices for each latent dimension
+        tiled_matrices = []
+        total = 0
+        for i in range(self.kernel_scales):
+            if i == self.kernel_scales-1:
+                multiplier = self.latent_dim - total
+            else:
+                multiplier = int(np.ceil(self.latent_dim / self.kernel_scales))
+                total += multiplier
+            tiled_matrices.append(tf.tile(tf.expand_dims(kernel_matrices[i], 0), [multiplier, 1, 1]))
+        kernel_matrix_tiled = np.concatenate(tiled_matrices)
+        assert len(kernel_matrix_tiled) == self.latent_dim
+        corruption = tf.transpose(corruption, [0, 2, 1]) # hotfix may not work with more than 3 dimensions
+        # kern_mat_cov = tf.stack([kernel_matrix_tiled] * len(corruption))
+
+        return tfd.MultivariateNormalFullCovariance(
+            loc= tf.concat((tf.zeros((corruption.shape[0], self.lls, self.time_length)),corruption), axis=1),
+            covariance_matrix=kernel_matrix_tiled)
+
+    def decode(self, z, c_i=None):
+        num_dim = len(z.shape)
+        assert num_dim > 2
+        perm = list(range(num_dim - 2)) + [num_dim - 1, num_dim - 2]
+        if self.use_corr:
+            return self.decoder(tf.concat((tf.transpose(z, perm=perm), c_i), axis=2))
+        else:
+            return self.decoder(tf.transpose(z, perm=perm))
