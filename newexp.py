@@ -38,7 +38,7 @@ flags.DEFINE_list('decoder_sizes', [256, 256, 256], 'Layer sizes of the decoder'
 flags.DEFINE_integer('window_size', 3, 'Window size for the inference CNN: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('sigma', 1.0, 'Sigma value for the GP prior: Ignored if model_type is not gp-vae')
 flags.DEFINE_float('length_scale', 2.0, 'Length scale value for the GP prior: Ignored if model_type is not gp-vae')
-flags.DEFINE_float('beta', 0.2, 'Factor to weigh the KL term (similar to beta-VAE)')
+flags.DEFINE_float('beta', 0.6, 'Factor to weigh the KL term (similar to beta-VAE)')
 flags.DEFINE_integer('num_epochs', 6, 'Number of training epochs')
 
 
@@ -52,7 +52,7 @@ flags.DEFINE_enum('tr_src', 'both', ['hmnist', 'sprites', 'both'], 'Source of da
 flags.DEFINE_enum('val_src', 'both', ['hmnist', 'sprites', 'both'], 'Source of data to be tested/validated on')
 flags.DEFINE_boolean('testing', False, 'Use the actual test set for testing')
 flags.DEFINE_integer('seed', 1337, 'Seed for the random number generator')
-flags.DEFINE_enum('model_type', 'cgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae', 'hgp-vae'], 'Type of model to be trained')
+flags.DEFINE_enum('model_type', 'hgp-vae', ['vae', 'hi-vae', 'gp-vae', 'cgp-vae', 'hgp-vae'], 'Type of model to be trained')
 flags.DEFINE_integer('cnn_kernel_size', 3, 'Kernel size for the CNN preprocessor')
 flags.DEFINE_list('cnn_sizes', [256], 'Number of filters for the layers of the CNN preprocessor')
 flags.DEFINE_boolean('debug', False, 'debug mode')
@@ -77,6 +77,7 @@ flags.DEFINE_integer('conv_cor_stride', 3, 'Stride of convolution filter for con
 flags.DEFINE_integer('learned_latent_size', 128, 'Size of Learned Latent Dimension')
 flags.DEFINE_integer('targeted_latent_size', 128, 'Size of Targeted Latent Dimension')
 flags.DEFINE_bool('use_corr', False, 'Use the corrupted input in the decode phase')
+flags.DEFINE_list('lower_decoder_sizes', [256, 256, 256], 'Layer sizes of the lower decoder')
 
 def main(argv):
     del argv  # unused
@@ -248,7 +249,8 @@ def main(argv):
                            beta=0.2, M=FLAGS.M, K=FLAGS.K, data_type=None,
                             corruption_factor=FLAGS.corruption_rate, conv_corr=FLAGS.conv_corruption,
                             conv_size=FLAGS.conv_cor_size, conv_stride=FLAGS.conv_cor_stride, img_shape=img_shape,
-                        learned_latent_size=FLAGS.learned_latent_size, targeted_latent_size=FLAGS.target_latent_size, use_corr=FLAGS.use_corr)
+                        learned_latent_size=FLAGS.learned_latent_size, targeted_latent_size=FLAGS.targeted_latent_size, use_corr=FLAGS.use_corr,
+                        lo_hidden_sizes=FLAGS.lower_decoder_sizes)
     else:
         raise ValueError("Model type must be one of ['vae', 'hi-vae', 'gp-vae','cgp-vae', 'hgp-vae']")
 

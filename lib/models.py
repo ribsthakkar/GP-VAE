@@ -157,6 +157,26 @@ class GaussianDecoder(Decoder):
         var = tf.ones(tf.shape(mean), dtype=tf.float32)
         return tfd.Normal(loc=mean, scale=var)
 
+class HybridDecoder(Decoder):
+    def __init__(self, *args, upper_split, lo_output_size, lo_hidden_sizes=(64,64), **kwargs):
+        """ Hybrid Decoder class with no specified output distribution
+            :param output_size: output dimensionality
+            :param hidden_sizes: tuple of hidden layer sizes.
+                                 The tuple length sets the number of hidden layers.
+        """
+        super(HybridDecoder, self).__init__(*args, **kwargs)
+        self.upper_net = self.net
+        self.lower_net = make_nn(lo_output_size, lo_hidden_sizes)
+        self.us = upper_split
+
+    def __call__(self, x):
+        upper = x[:,:,:self.us]
+        lower =  x[:,:,self.us:]
+        up_res = self.upper_net(upper)
+        mean = self.lower_net(tf.concat((up_res, lower), axis=2))
+        var = tf.ones(tf.shape(mean), dtype=tf.float32)
+        self.up_dist = tfd.Normal(loc=up_res, scale=var)
+        return tfd.Normal(loc=mean, scale=var)
 
 # Image preprocessor
 
@@ -202,7 +222,7 @@ class VAE(tf.keras.Model):
         self.latent_dim = latent_dim
         self.data_dim = data_dim
         self.time_length = time_length
-
+        self.decoder_sizes = decoder_sizes
         self.encoder = encoder(latent_dim, encoder_sizes, **kwargs)
         self.decoder = decoder(data_dim, decoder_sizes)
         self.preprocessor = image_preprocessor
@@ -588,11 +608,12 @@ class CGP_VAE(GP_VAE):
         return tfd.kl_divergence(a, b)
 
 class HGP_VAE(CGP_VAE):
-    def __init__(self, *args,learned_latent_size =128, targeted_latent_size=128, use_corr=False,**kwargs):
+    def __init__(self, *args,learned_latent_size=128, targeted_latent_size=128, lo_hidden_sizes=(256,256,256), use_corr=False,**kwargs):
         super(HGP_VAE, self).__init__(*args, **kwargs)
         self.lls = learned_latent_size
         self.tlz = targeted_latent_size
         self.use_corr = use_corr
+        self.decoder = HybridDecoder(self.data_dim, upper_split = self.lls, lo_output_size=self.data_dim, lo_hidden_sizes=lo_hidden_sizes, hidden_sizes=self.decoder_sizes)
         assert self.lls > 0
         assert self.tlz > 0
         assert self.lls + self.tlz == self.latent_dim
@@ -622,9 +643,12 @@ class HGP_VAE(CGP_VAE):
         pz = self._get_prior(corruption=corruption)
         qz_x = self.encode(x)
         z = qz_x.sample()
-        px_z = self.decode(z, None)
-        nll = -px_z.log_prob(clean_input)  # shape=(M*K*BS, TL, D) # want to compare nll of reconstructing new image
+        px_z = self.decode(z)
+        # nll = -px_z.log_prob(clean_input)  # shape=(M*K*BS, TL, D) # want to compare nll of reconstructing new image
+        nll = -self.decoder.up_dist.log_prob(x)  # shape=(M*K*BS, TL, D) # want to compare nll of reconstructing new image
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
+        if m_mask is not None:
+            nll = tf.where(m_mask, tf.zeros_like(nll), nll)  # if not HI-VAE, m_mask is always zeros
         nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
 
         # print(pz.mean(), z)
@@ -674,18 +698,32 @@ class HGP_VAE(CGP_VAE):
         total = 0
         for i in range(self.kernel_scales):
             if i == self.kernel_scales-1:
-                multiplier = self.latent_dim - total
+                multiplier = self.lls - total
             else:
-                multiplier = int(np.ceil(self.latent_dim / self.kernel_scales))
+                multiplier = int(np.ceil(self.lls / self.kernel_scales))
                 total += multiplier
             tiled_matrices.append(tf.tile(tf.expand_dims(kernel_matrices[i], 0), [multiplier, 1, 1]))
-        kernel_matrix_tiled = np.concatenate(tiled_matrices)
-        assert len(kernel_matrix_tiled) == self.latent_dim
+        l_kernel_matrix_tiled = np.concatenate(tiled_matrices)
+        tiled_matrices = []
+        total = 0
+        for i in range(self.kernel_scales):
+            if i == self.kernel_scales-1:
+                multiplier = self.tlz - total
+            else:
+                multiplier = int(np.ceil(self.tlz / self.kernel_scales))
+                total += multiplier
+            tiled_matrices.append(tf.tile(tf.expand_dims(kernel_matrices[i], 0), [multiplier, 1, 1]))
+        t_kernel_matrix_tiled = np.concatenate(tiled_matrices)
+        assert len(l_kernel_matrix_tiled) == self.lls
+        assert len(t_kernel_matrix_tiled) == self.tlz
         corruption = tf.transpose(corruption, [0, 2, 1]) # hotfix may not work with more than 3 dimensions
-        # kern_mat_cov = tf.stack([kernel_matrix_tiled] * len(corruption))
-
+        kernel_matrix_tiled = np.concatenate((l_kernel_matrix_tiled, t_kernel_matrix_tiled))
+        # return tfd.MultivariateNormalFullCovariance(
+        #     loc=tf.zeros([self.latent_dim, self.time_length], dtype=tf.float32),
+        #     covariance_matrix=l_kernel_matrix_tiled), tfd.MultivariateNormalFullCovariance(loc=corruption,
+        #                                                                              covariance_matrix=t_kernel_matrix_tiled)
         return tfd.MultivariateNormalFullCovariance(
-            loc= tf.concat((tf.zeros((corruption.shape[0], self.lls, self.time_length)),corruption), axis=1),
+            loc= tf.concat((tf.zeros((corruption.shape[0], self.lls, self.time_length), dtype=tf.float32),corruption), axis=1),
             covariance_matrix=kernel_matrix_tiled)
 
     def decode(self, z, c_i=None):
