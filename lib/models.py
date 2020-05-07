@@ -499,6 +499,8 @@ class CGP_VAE(GP_VAE):
         px_z = self.decode(z, x)
         nll = -px_z.log_prob(clean_input)  # shape=(M*K*BS, TL, D) # want to compare nll of reconstructing new image
         nll = tf.where(tf.math.is_finite(nll), nll, tf.zeros_like(nll))
+        if m_mask is not None:
+            nll = tf.where(m_mask, tf.zeros_like(nll), nll)  # if not HI-VAE, m_mask is always zeros
         nll = tf.reduce_sum(nll, [1, 2])  # shape=(M*K*BS)
 
         # print(pz.mean(), z)
