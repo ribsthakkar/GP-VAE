@@ -49,3 +49,12 @@ The following are commands to run our experiments. Exchange the model type argum
 Remove the `--testing` flag if you want to simply use a validation split for the training data.
 
 If you do remove the `--testing` flag, you must ensure that `--val_src` and `--tr_src` are the same.
+
+## Comparison of Results
+Below is a qualitative comparison of our results from training using the homogenous data sets of either just HMNIST data or SPRITES data.
+
+![img](./figures/compare_pure.png)
+
+Below is a qualitative comparison of our results from training on the mixed dataset of both HMNIST and SPRITES data.
+
+![img](./figures/compare_mixed.png)
